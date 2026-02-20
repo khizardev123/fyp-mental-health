@@ -6,69 +6,104 @@ interface AvatarProps {
 }
 
 export default function Avatar({ emotion, isThinking }: AvatarProps) {
-    // Determine colors based on emotion
-    const getColors = () => {
+    // Premium Color System
+    const getTheme = () => {
         switch (emotion?.toLowerCase()) {
-            case 'sadness': return ['#3b82f6', '#1d4ed8'];
-            case 'joy': return ['#facc15', '#f59e0b'];
-            case 'anger': return ['#ef4444', '#b91c1c'];
-            case 'fear': return ['#8b5cf6', '#6d28d9'];
-            case 'love': return ['#ec4899', '#be185d'];
-            default: return ['#6366f1', '#4f46e5']; // Neutral/Serene
+            case 'sadness': return { primary: '#3b82f6', secondary: '#1e40af', glow: 'rgba(59, 130, 246, 0.5)' };
+            case 'joy': return { primary: '#fbbf24', secondary: '#d97706', glow: 'rgba(251, 191, 36, 0.5)' };
+            case 'anger': return { primary: '#ef4444', secondary: '#991b1b', glow: 'rgba(239, 68, 68, 0.5)' };
+            case 'fear': return { primary: '#8b5cf6', secondary: '#5b21b6', glow: 'rgba(139, 92, 246, 0.5)' };
+            case 'love': return { primary: '#f472b6', secondary: '#be185d', glow: 'rgba(244, 114, 182, 0.5)' };
+            default: return { primary: '#6366f1', secondary: '#4338ca', glow: 'rgba(99, 102, 241, 0.5)' }; // Serene
         }
     };
 
-    const [primary, secondary] = getColors();
+    const theme = getTheme();
 
     return (
-        <div className="relative w-32 h-32 flex items-center justify-center">
-            {/* Glow Effect */}
+        <div className="relative w-32 h-32 flex items-center justify-center translate-z-0">
+            {/* Organic Glow Layer */}
             <motion.div
-                className="absolute inset-0 rounded-full blur-xl opacity-40"
-                animate={{ scale: [1, 1.2, 1], opacity: [0.3, 0.5, 0.3] }}
-                transition={{ duration: 4, repeat: Infinity, ease: "easeInOut" }}
-                style={{ background: primary }}
+                className="absolute inset-0 blur-3xl rounded-full"
+                animate={{
+                    scale: isThinking ? [1, 1.2, 1] : [1, 1.1, 1],
+                    opacity: [0.2, 0.4, 0.2]
+                }}
+                transition={{ duration: 4, repeat: Infinity }}
+                style={{ background: theme.primary }}
             />
 
-            {/* Core Avatar SVG */}
-            <svg viewBox="0 0 100 100" className="w-full h-full drop-shadow-lg">
-                <defs>
-                    <linearGradient id="grad1" x1="0%" y1="0%" x2="100%" y2="100%">
-                        <stop offset="0%" style={{ stopColor: primary, stopOpacity: 1 }} />
-                        <stop offset="100%" style={{ stopColor: secondary, stopOpacity: 1 }} />
-                    </linearGradient>
-                </defs>
+            {/* Liquid Blob Container */}
+            <div className="relative w-full h-full filter-liquid overflow-visible">
+                <svg viewBox="0 0 200 200" className="w-full h-full">
+                    <defs>
+                        <filter id="liquid-filter">
+                            <feGaussianBlur in="SourceGraphic" stdDeviation="10" result="blur" />
+                            <feColorMatrix in="blur" mode="matrix" values="1 0 0 0 0  0 1 0 0 0  0 0 1 0 0  0 0 0 18 -7" result="liquid" />
+                        </filter>
+                        <linearGradient id="blob-gradient" x1="0%" y1="0%" x2="100%" y2="100%">
+                            <stop offset="0%" stopColor={theme.primary} />
+                            <stop offset="100%" stopColor={theme.secondary} />
+                        </linearGradient>
+                    </defs>
 
-                <motion.circle
-                    cx="50" cy="50" r="45"
-                    fill="url(#grad1)"
-                    animate={{
-                        scale: isThinking ? [1, 0.95, 1] : 1,
-                        rotate: isThinking ? [0, 5, -5, 0] : 0
-                    }}
-                    transition={{
-                        duration: isThinking ? 0.5 : 2,
-                        repeat: Infinity
-                    }}
-                />
+                    <g filter="url(#liquid-filter)">
+                        {/* Main Morphing Body */}
+                        <motion.circle
+                            cx="100" cy="100" r="65"
+                            fill="url(#blob-gradient)"
+                            animate={{
+                                cx: isThinking ? [100, 105, 95, 100] : [100, 102, 98, 100],
+                                cy: isThinking ? [100, 95, 105, 100] : [100, 102, 98, 100],
+                                r: isThinking ? [65, 60, 68, 65] : [65, 63, 67, 65]
+                            }}
+                            transition={{ duration: 3, repeat: Infinity, ease: "easeInOut" }}
+                        />
 
-                {/* Simple Face Expression (Abstract) */}
-                <motion.path
-                    d="M30 40 Q50 45 70 40" // Eyes line
-                    stroke="white" strokeWidth="3" strokeLinecap="round" fill="none"
-                    animate={{ d: emotion === 'joy' ? "M30 45 Q50 35 70 45" : "M30 40 Q50 45 70 40" }}
-                />
+                        {/* Secondary Satellites for Liquid Effect */}
+                        {[1, 2, 3].map((i) => (
+                            <motion.circle
+                                key={i}
+                                cx="100" cy="100" r="30"
+                                fill="url(#blob-gradient)"
+                                animate={{
+                                    x: isThinking ? [0, i * 15, -i * 15, 0] : [0, i * 5, -i * 5, 0],
+                                    y: isThinking ? [0, -i * 15, i * 15, 0] : [0, -i * 5, i * 5, 0],
+                                    scale: [1, 1.2, 0.8, 1]
+                                }}
+                                transition={{
+                                    duration: 4 + i,
+                                    repeat: Infinity,
+                                    ease: "easeInOut",
+                                    delay: i * 0.5
+                                }}
+                            />
+                        ))}
+                    </g>
 
-                <motion.path
-                    d="M40 65 Q50 75 60 65" // Smile/Mouth
-                    stroke="white" strokeWidth="3" strokeLinecap="round" fill="none"
-                    animate={{
-                        d: emotion === 'joy' ? "M35 60 Q50 80 65 60" :
-                            emotion === 'sadness' ? "M35 70 Q50 60 65 70" :
-                                "M40 65 Q50 65 60 65"
-                    }}
-                />
-            </svg>
+                    {/* Minimal Face Overlay (outside filter for clarity) */}
+                    <g className="drop-shadow-sm">
+                        <motion.path
+                            d={emotion === 'joy' ? "M70 110 Q100 135 130 110" :
+                                emotion === 'sadness' ? "M75 125 Q100 110 125 125" :
+                                    "M80 115 Q100 115 120 115"}
+                            stroke="white" strokeWidth="4" strokeLinecap="round" fill="none"
+                            animate={{ opacity: isThinking ? 0.3 : 0.8 }}
+                        />
+                        {/* Eyes */}
+                        <motion.circle
+                            cx="75" cy="90" r="3" fill="white"
+                            animate={{ scaleY: isThinking ? [1, 0.1, 1] : 1 }}
+                            transition={{ repeat: Infinity, duration: 3, delay: 1 }}
+                        />
+                        <motion.circle
+                            cx="125" cy="90" r="3" fill="white"
+                            animate={{ scaleY: isThinking ? [1, 0.1, 1] : 1 }}
+                            transition={{ repeat: Infinity, duration: 3, delay: 1.1 }}
+                        />
+                    </g>
+                </svg>
+            </div>
         </div>
     );
 }

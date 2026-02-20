@@ -216,8 +216,8 @@ export default function JournalArea({
         setMessages(prev => [...prev, { role: 'user', text: userText }]);
 
         try {
-            // ── Step 1: AI Analysis (all 3 models) ──
-            const analysisRes = await ai.analyze(userText);
+            // ── Step 1: AI Analysis (context-aware with history) ──
+            const analysisRes = await ai.analyze(userText, conversationHistory);
             const { emotion: emoData, crisis: crisisData, mental_health: mhData, processing_time_ms } = analysisRes.data;
 
             setCurrentEmotion(emoData.emotion);

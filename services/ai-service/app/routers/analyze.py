@@ -11,6 +11,7 @@ class AnalysisRequest(BaseModel):
     text: str = Field(..., min_length=1, max_length=5000)
     user_id: Optional[str] = None
     language: Optional[str] = "en"
+    history: Optional[list] = []  # Added history support
 
 class EmotionResult(BaseModel):
     emotion: str
@@ -51,11 +52,12 @@ async def analyze_journal_entry(
         # Step 1: Emotion (needed first so we can calibrate crisis)
         emotion_result = emotion_analyzer.predict(request.text)
 
-        # Step 2: Crisis — pass emotion context for calibration
+        # Step 2: Crisis — pass emotion context AND history for calibration
         crisis_result = crisis_detector.predict(
             text=request.text,
             emotion=emotion_result.get("emotion", "neutral"),
             emotion_confidence=emotion_result.get("confidence", 0.0),
+            history=request.history  # Pass history here
         )
 
         # Step 3: Mental health

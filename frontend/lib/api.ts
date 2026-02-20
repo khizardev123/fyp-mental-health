@@ -41,7 +41,7 @@ export const journal = {
 };
 
 export const ai = {
-    analyze: (text: string) => api.post('/api/ai/analyze/journal', { text }),
+    analyze: (text: string, history: any[] = []) => api.post('/api/ai/analyze/journal', { text, history }),
 };
 
 export const avatar = {

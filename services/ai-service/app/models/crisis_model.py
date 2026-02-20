@@ -27,11 +27,27 @@ class CrisisDetector:
             logger.error(f"Crisis model load failed: {e}")
             raise
 
-    def predict(self, text: str, emotion: str = "neutral", emotion_confidence: float = 0.0) -> dict:
+    def predict(self, text: str, emotion: str = "neutral", emotion_confidence: float = 0.0, history: list = None) -> dict:
         """
         Analyzes the complete sentence context provided in 'text'.
-        Returns detailed risk assessment driven by semantic analysis.
+        Factoring in the conversation history for 'Contextual Smoothing'.
         """
+        text_lower = text.lower()
+        
+        # ── Step 0: Contextual Sensitivity Analysis ──────────────────────────
+        # If history shows previous high risks, we increase the current sensitivity
+        history_boost = 0.0
+        if history:
+            # Check last 3 messages in history
+            recent_context = history[-3:]
+            prev_crisis_count = sum(1 for msg in recent_context if 
+                                    isinstance(msg, dict) and 
+                                    msg.get('analysis', {}).get('risk_level') in ('HIGH', 'CRISIS'))
+            
+            if prev_crisis_count > 0:
+                history_boost = 0.15 * prev_crisis_count
+                logger.info(f"Contextual Smoothing: Boosting sensitivity by {history_boost}")
+
         try:
             # Model analyzes complete sentence (word n-grams + char n-grams)
             probs = self.pipeline.predict_proba([text])[0]
@@ -42,9 +58,9 @@ class CrisisDetector:
             logger.error(f"Crisis prediction failed: {e}")
             raw_prob = 0.02
 
-        # Optional: Subtle calibration for positive emotional context
-        # If the model is borderline but the user is expressing joy/love, we lean towards safety
-        calibrated_prob = raw_prob
+        # ── Step 2: Subtle calibration for positive emotional context ────────
+        calibrated_prob = min(0.98, raw_prob + history_boost)
+        
         if emotion in POSITIVE_EMOTIONS and emotion_confidence >= 0.50 and raw_prob < 0.70:
             discount = min(0.50, emotion_confidence * 0.6)
             calibrated_prob = raw_prob * (1.0 - discount)

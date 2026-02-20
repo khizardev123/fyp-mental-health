@@ -6,6 +6,7 @@ router = APIRouter()
 
 class PredictRequest(BaseModel):
     text: str
+    history: list = []  # Optional conversation history
 
 @router.post("/emotion")
 async def predict_emotion(request: PredictRequest):
@@ -15,7 +16,7 @@ async def predict_emotion(request: PredictRequest):
 @router.post("/crisis")
 async def predict_crisis(request: PredictRequest):
     from main import crisis_detector
-    return crisis_detector.predict(request.text)
+    return crisis_detector.predict(request.text, history=request.history)
 
 @router.post("/mental-health")
 async def predict_mhealth(request: PredictRequest):
