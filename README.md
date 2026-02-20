@@ -109,6 +109,10 @@ graph LR
 
 The SereneMind mission relies on three primary ML models working in a pipeline.
 
+- **Emotion Classification**: High-recall TF-IDF analysis.
+- **Crisis Detection**: Full-sentence semantic analysis (Model-First) accurately distinguishing resilient sadness from active suicidal ideation.
+- **Mental Health Triage**: Multi-label classification for stress, anxiety, and depression.
+
 ### Diagram 6: AI Inference Pipeline (Sequence)
 ```mermaid
 sequenceDiagram
