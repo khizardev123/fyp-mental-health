@@ -1,0 +1,18 @@
+
+> serenemind-frontend@1.0.0 dev
+> next dev
+
+  ▲ Next.js 14.2.3
+  - Local:        http://localhost:3000
+
+ ✓ Starting...
+ ✓ Ready in 1788ms
+ ○ Compiling /dashboard ...
+ ✓ Compiled /dashboard in 1322ms (1400 modules)
+ GET /dashboard 200 in 1485ms
+ ✓ Compiled in 118ms (667 modules)
+ ✓ Compiled / in 192ms (1394 modules)
+ GET / 200 in 240ms
+ GET /dashboard 200 in 63ms
+ GET /dashboard 200 in 24ms
+ GET / 200 in 25ms

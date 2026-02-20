@@ -1,0 +1,30 @@
+# Dependencies
+node_modules/
+dist/
+build/
+.next/
+.venv/
+venv/
+ml/venv/
+__pycache__/
+*.pyc
+
+# Environment & IDE
+.env
+.env.local
+.vscode/
+.idea/
+.DS_Store
+
+# Large binaries
+ml/models/crisis_model/
+ml/models/emotion_model/
+ml/models/mental_health_model/
+# Keeping lightweight models: ml/models/*.joblib
+
+# Logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.npm
+.eslintcache
