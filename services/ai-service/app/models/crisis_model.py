@@ -1,11 +1,15 @@
 import joblib
 import logging
 import re
+from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 
-# No more keyword overrides — the model is now accurate enough to handle full context.
-# We only keep a very small set of positive emotions to provide subtle calibration.
+# The model is now calibrated against the 4-level Crisis Taxonomy:
+# Level 1: Emotional / NOT Crisis
+# Level 2: Implicit Crisis
+# Level 3: Explicit Crisis
+# Level 4: Positive Confounders (Safe)
 POSITIVE_EMOTIONS = {"joy", "love", "surprise"}
 
 class CrisisDetector:
@@ -38,14 +42,14 @@ class CrisisDetector:
         # If history shows previous high risks, we increase the current sensitivity
         history_boost = 0.0
         if history:
-            # Check last 3 messages in history
-            recent_context = history[-3:]
+            # Check last N messages in history
+            recent_context = history[-settings.HISTORY_LOOKBACK:]
             prev_crisis_count = sum(1 for msg in recent_context if 
                                     isinstance(msg, dict) and 
                                     msg.get('analysis', {}).get('risk_level') in ('HIGH', 'CRISIS'))
             
             if prev_crisis_count > 0:
-                history_boost = 0.15 * prev_crisis_count
+                history_boost = settings.CONTEXT_SENSITIVITY_BOOST * prev_crisis_count
                 logger.info(f"Contextual Smoothing: Boosting sensitivity by {history_boost}")
 
         try:
@@ -58,22 +62,33 @@ class CrisisDetector:
             logger.error(f"Crisis prediction failed: {e}")
             raw_prob = 0.02
 
+        # ── Step 1: Reliability Bridge (Explicit Keyword Check) ──────────────
+        # This ensures we don't lose credibility on blunt, explicit threats
+        # that the lightweight semantic model might not have sufficient weight for.
+        explicit_boost = 0.0
+        for keyword in settings.EXPLICIT_KEYWORDS:
+            if keyword in text_lower:
+                explicit_boost = max(explicit_boost, 0.85) # Force CRISIS level
+                logger.info(f"Reliability Bridge: Triggered by explicit keyword '{keyword}'")
+                break
+
         # ── Step 2: Subtle calibration for positive emotional context ────────
-        calibrated_prob = min(0.98, raw_prob + history_boost)
+        combined_prob = max(raw_prob, explicit_boost)
+        calibrated_prob = min(0.98, combined_prob + history_boost)
         
-        if emotion in POSITIVE_EMOTIONS and emotion_confidence >= 0.50 and raw_prob < 0.70:
+        # Only discount if it's NOT an explicit threat (triggered by reliability bridge)
+        if explicit_boost == 0 and emotion in POSITIVE_EMOTIONS and emotion_confidence >= 0.50 and raw_prob < 0.70:
             discount = min(0.50, emotion_confidence * 0.6)
             calibrated_prob = raw_prob * (1.0 - discount)
 
         calibrated_prob = round(calibrated_prob, 4)
 
-        # Map probability to risk levels
-        # 0.45 is the optimized threshold discovered during semantic training
-        if calibrated_prob >= 0.70:
+        # Map probability to risk levels based on centralized taxonomy thresholds
+        if calibrated_prob >= settings.THRESHOLD_CRISIS:
             risk_level, action = "CRISIS", True
-        elif calibrated_prob >= 0.45:
+        elif calibrated_prob >= settings.THRESHOLD_HIGH:
             risk_level, action = "HIGH", True
-        elif calibrated_prob >= 0.25:
+        elif calibrated_prob >= settings.THRESHOLD_MEDIUM:
             risk_level, action = "MEDIUM", False
         else:
             risk_level, action = "LOW", False

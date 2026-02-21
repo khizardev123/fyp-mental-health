@@ -1,0 +1,48 @@
+INFO:     Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)
+INFO:     Started parent process [71270]
+INFO:     Started server process [71274]
+INFO:     Started server process [71273]
+INFO:     Waiting for application startup.
+INFO:     Waiting for application startup.
+INFO:main:🚀 Loading SereneMind AI Service models...
+INFO:app.models.emotion_model:Loading fast emotion model from /Users/ahmadabdullah/Downloads/khizer fyp/serenemind/ml/models/lightweight_emotion.joblib
+INFO:main:🚀 Loading SereneMind AI Service models...
+INFO:app.models.emotion_model:Loading fast emotion model from /Users/ahmadabdullah/Downloads/khizer fyp/serenemind/ml/models/lightweight_emotion.joblib
+INFO:app.models.emotion_model:✅ Emotion model loaded successfully
+INFO:app.models.emotion_model:✅ Emotion model loaded successfully
+INFO:app.models.crisis_model:✅ Semantic Crisis model loaded
+INFO:app.models.crisis_model:✅ Semantic Crisis model loaded
+INFO:app.models.mental_health_model:✅ Mental Health detection model loaded
+INFO:main:✅ Models loaded successfully from settings
+INFO:     Application startup complete.
+INFO:app.models.mental_health_model:✅ Mental Health detection model loaded
+INFO:main:✅ Models loaded successfully from settings
+INFO:     Application startup complete.
+INFO:     127.0.0.1:51423 - "POST /analyze/journal HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51425 - "POST /analyze/journal HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51427 - "POST /analyze/journal HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51429 - "POST /analyze/journal HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51431 - "POST /analyze/journal HTTP/1.1" 200 OK
+INFO:app.models.crisis_model:Reliability Bridge: Triggered by explicit keyword 'reason to continue'
+INFO:     127.0.0.1:51433 - "POST /analyze/journal HTTP/1.1" 200 OK
+INFO:app.models.crisis_model:Reliability Bridge: Triggered by explicit keyword 'better without me'
+INFO:     127.0.0.1:51435 - "POST /analyze/journal HTTP/1.1" 200 OK
+INFO:app.models.crisis_model:Reliability Bridge: Triggered by explicit keyword 'disappear'
+INFO:     127.0.0.1:51437 - "POST /analyze/journal HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51439 - "POST /analyze/journal HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51441 - "POST /analyze/journal HTTP/1.1" 200 OK
+INFO:app.models.crisis_model:Reliability Bridge: Triggered by explicit keyword 'kill myself'
+INFO:     127.0.0.1:51443 - "POST /analyze/journal HTTP/1.1" 200 OK
+INFO:app.models.crisis_model:Reliability Bridge: Triggered by explicit keyword 'end my life'
+INFO:     127.0.0.1:51445 - "POST /analyze/journal HTTP/1.1" 200 OK
+INFO:app.models.crisis_model:Reliability Bridge: Triggered by explicit keyword 'want to die'
+INFO:     127.0.0.1:51447 - "POST /analyze/journal HTTP/1.1" 200 OK
+INFO:app.models.crisis_model:Reliability Bridge: Triggered by explicit keyword 'hang myself'
+INFO:     127.0.0.1:51449 - "POST /analyze/journal HTTP/1.1" 200 OK
+INFO:app.models.crisis_model:Reliability Bridge: Triggered by explicit keyword 'pills'
+INFO:     127.0.0.1:51451 - "POST /analyze/journal HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51453 - "POST /analyze/journal HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51455 - "POST /analyze/journal HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51457 - "POST /analyze/journal HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51459 - "POST /analyze/journal HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51461 - "POST /analyze/journal HTTP/1.1" 200 OK

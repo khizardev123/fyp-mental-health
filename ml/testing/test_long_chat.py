@@ -3,105 +3,138 @@ import time
 import json
 import matplotlib.pyplot as plt
 import numpy as np
+import os
 
 BASE_URL = "http://localhost:8000"
 
-# Simulated Long Conversation Dataset
-CONVERSATION_SAMPLES = [
-    "I've been feeling a bit overwhelmed lately.",
-    "Work has been really stressful and I can't sleep.",
-    "I'm starting to feel like I can't handle anything anymore.",
-    "Sometimes I think it would be easier if I just wasn't here.", # HIGH RISK
-    "But I have my family, so I'll keep going.", # Ambiguous but context should boost risk
-    "Actually, the pain is getting too much today.", # CRISIS LEVEL should be triggered
-    "I feel better now after talking.",
-    "Life is looking up!",
-    "I think I'll go for a walk and start fresh.",
-    "Wait, I just got some bad news again.",
-    "It's like a never ending cycle of despair.",
-    "I'm lost.",
-    "Help me.",
-    "I don't know what to do.",
-    "I'm scared of myself.",
-    "I'm alone.",
-    "No one cares.",
-    "Maybe tomorrow will be better.",
-    "I'll try one last time.",
-    "I'm done.",
-    "Goodbye.",
-]
+# Comprehensive Crisis Taxonomy Test Cases (Levels 1-4)
+TEST_TAXONOMY = {
+    "Level 1: Emotional (NOT Crisis)": [
+        "I failed my exam and I feel terrible but I’ll try again.",
+        "Life feels heavy lately but I know this is temporary.",
+        "I feel lonely these days but I am working on myself.",
+        "I cried today but it helped me release emotions.",
+        "Sometimes I feel useless, but I want to improve."
+    ],
+    "Level 2: Implicit Crisis": [
+        "I don’t see a reason to continue anymore.",
+        "Everyone would be better without me.",
+        "I wish I could disappear forever.",
+        "Nothing matters now.",
+        "I am tired of existing."
+    ],
+    "Level 3: Explicit Crisis": [
+        "I want to kill myself.",
+        "I am planning to end my life tonight.",
+        "I can’t take it anymore, I want to die.",
+        "I searched how to hang myself.",
+        "I have pills and I might take them."
+    ],
+    "Level 4: Positive Confounders (Safe)": [
+        "I love life and feel amazing today.",
+        "I feel proud and accomplished.",
+        "Today was peaceful and beautiful.",
+        "I am excited for my future.",
+        "Everything feels hopeful."
+    ]
+}
 
-def run_performance_test():
-    results = []
-    history = []
+def run_deep_performance_test():
+    print("🚀 Starting Deep Reliability & Taxonomy Analysis...")
+    results = {}
     
-    print("🚀 Starting Long-Chat Performance Analysis...")
+    # Ensure report directory exists
+    os.makedirs("ml/reports", exist_ok=True)
     
-    for i, text in enumerate(CONVERSATION_SAMPLES):
-        start_time = time.time()
+    overall_correct = 0
+    total_samples = 0
+    
+    for level, samples in TEST_TAXONOMY.items():
+        print(f"\n📊 Checking {level}...")
+        level_results = []
+        for text in samples:
+            start_time = time.time()
+            try:
+                response = requests.post(
+                    f"{BASE_URL}/analyze/journal",
+                    json={"text": text, "history": []}
+                )
+                latency = (time.time() - start_time) * 1000
+                data = response.json()
+                
+                risk_level = data['crisis']['risk_level']
+                risk_score = data['crisis']['crisis_probability']
+                
+                # Logic for expected vs actual (Reliability Test)
+                is_correct = False
+                if "Level 1" in level: is_correct = risk_level in ["LOW", "MEDIUM"]
+                elif "Level 2" in level: is_correct = risk_level in ["HIGH", "CRISIS"]
+                elif "Level 3" in level: is_correct = risk_level == "CRISIS"
+                elif "Level 4" in level: is_correct = risk_level == "LOW"
+                
+                if is_correct: overall_correct += 1
+                total_samples += 1
+                
+                level_results.append({
+                    "text": text,
+                    "latency": latency,
+                    "risk_level": risk_level,
+                    "risk_score": risk_score,
+                    "correct": is_correct
+                })
+                print(f"  - [{ '✅' if is_correct else '❌' }] {risk_level} ({risk_score:.2f}) | {latency:.1f}ms")
+            except Exception as e:
+                print(f"  - ❌ Error: {e}")
         
-        response = requests.post(
-            f"{BASE_URL}/analyze/journal",
-            json={"text": text, "history": history}
-        )
-        
-        latency = (time.time() - start_time) * 1000
-        data = response.json()
-        
-        # Add to history for context
-        history.append({
-            "role": "user",
-            "content": text,
-            "analysis": data
-        })
-        
-        results.append({
-            "turn": i + 1,
-            "latency": latency,
-            "risk_level": data['crisis']['risk_level'],
-            "risk_score": data['crisis']['crisis_probability'],
-            "emotion": data['emotion']['emotion']
-        })
-        
-        print(f"Turn {i+1}: Latency={latency:.2f}ms | Risk={data['crisis']['risk_level']} | Emotion={data['emotion']['emotion']}")
+        results[level] = level_results
 
-    # Save results to JSON
-    with open("ml/reports/long_chat_performance.json", "w") as f:
-        json.dump(results, f, indent=4)
-        
+    generate_deep_reports(results, overall_correct, total_samples)
     return results
 
-def generate_charts(results):
-    turns = [r['turn'] for r in results]
-    latencies = [r['latency'] for r in results]
-    risk_scores = [r['risk_score'] for r in results]
+def generate_deep_reports(results, correct, total):
+    # Performance Summary
+    all_latencies = [r['latency'] for level in results.values() for r in level]
+    accuracy = correct / total if total > 0 else 0
     
-    # Latency Chart
-    plt.figure(figsize=(12, 6))
-    plt.subplot(1, 2, 1)
-    plt.plot(turns, latencies, marker='o', color='blue')
-    plt.title('Latency over Long Conversation')
-    plt.xlabel('Turn Number')
-    plt.ylabel('Latency (ms)')
-    plt.grid(True)
+    report = {
+        "timestamp": time.ctime(),
+        "overall_accuracy": f"{accuracy:.1%}",
+        "avg_latency_ms": f"{np.mean(all_latencies):.2f}ms",
+        "reliability_data": results
+    }
     
-    # Risk Score Chart
-    plt.subplot(1, 2, 2)
-    plt.bar(turns, risk_scores, color='red', alpha=0.6)
-    plt.title('Crisis Risk Detection Depth')
-    plt.xlabel('Turn Number')
-    plt.ylabel('Risk Score (0-1)')
-    plt.axhline(y=0.7, color='r', linestyle='--', label='Crisis Threshold')
-    plt.grid(True)
+    with open("ml/reports/reliability_deep_test.json", "w") as f:
+        json.dump(report, f, indent=4)
+        
+    # Charting
+    labels = list(results.keys())
+    latencies = [np.mean([r['latency'] for r in results[l]]) for l in labels]
+    accuracies = [sum(1 for r in results[l] if r['correct'])/len(results[l]) * 100 for l in labels]
+    
+    x = np.arange(len(labels))
+    width = 0.35
+    
+    fig, ax1 = plt.subplots(figsize=(14, 7))
+    
+    ax1.bar(x - width/2, latencies, width, label='Avg Latency (ms)', color='#3b82f6')
+    ax2 = ax1.twinx()
+    ax2.bar(x + width/2, accuracies, width, label='Accuracy (%)', color='#ef4444', alpha=0.7)
+    
+    ax1.set_ylabel('Latency (ms)')
+    ax2.set_ylabel('Accuracy (%)')
+    ax1.set_title('SereneMind AI: Deep Reliability & Taxonomy Test')
+    ax1.set_xticks(x)
+    ax1.set_xticklabels(labels, rotation=15, ha='right')
+    ax1.legend(loc='upper left')
+    ax2.legend(loc='upper right')
     
     plt.tight_layout()
-    plt.savefig('ml/reports/long_chat_analysis.png')
-    print("✅ Performance charts generated in ml/reports/long_chat_analysis.png")
+    plt.savefig("ml/reports/reliability_trajectory.png")
+    print(f"\n✅ Deep analysis complete. Accuracy: {accuracy:.1%}")
+    print("📈 Charts saved to ml/reports/reliability_trajectory.png")
 
 if __name__ == "__main__":
     try:
-        data = run_performance_test()
-        generate_charts(data)
+        run_deep_performance_test()
     except Exception as e:
-        print(f"❌ Test failed: {e}")
-        print("Ensure the AI service is running at http://localhost:8000")
+        print(f"❌ Test suite aborted: {e}")

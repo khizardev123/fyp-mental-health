@@ -7,6 +7,7 @@ from app.models.emotion_model import EmotionAnalyzer
 from app.models.crisis_model import CrisisDetector
 from app.models.mental_health_model import MentalHealthDetector
 from app.routers import analyze, health, predict
+from app.core.config import settings
 import logging
 import os
 
@@ -21,24 +22,20 @@ mental_health_detector: MentalHealthDetector = None
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global emotion_analyzer, crisis_detector, mental_health_detector
-    logger.info("🚀 Loading Lightning-Fast AI models...")
+    logger.info(f"🚀 Loading {settings.PROJECT_NAME} models...")
     
-    # Get absolute path to the ML models directory
-    base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-    models_dir = os.path.join(base_dir, "ml", "models")
+    emotion_analyzer = EmotionAnalyzer(model_path=settings.EMOTION_MODEL_PATH)
+    crisis_detector = CrisisDetector(model_path=settings.CRISIS_MODEL_PATH)
+    mental_health_detector = MentalHealthDetector(model_path=settings.MH_MODEL_PATH)
     
-    emotion_analyzer = EmotionAnalyzer(model_path=os.path.join(models_dir, "lightweight_emotion.joblib"))
-    crisis_detector = CrisisDetector(model_path=os.path.join(models_dir, "lightweight_crisis.joblib"))
-    mental_health_detector = MentalHealthDetector(model_path=os.path.join(models_dir, "lightweight_mental_health.joblib"))
-    
-    logger.info("✅ Models loaded successfully")
+    logger.info("✅ Models loaded successfully from settings")
     yield
     logger.info("🛑 Shutting down AI service...")
 
 app = FastAPI(
-    title="SereneMind AI Service",
+    title=settings.PROJECT_NAME,
     description="Emotion analysis and crisis detection for mental health journaling",
-    version="1.0.0",
+    version="1.1.0",
     lifespan=lifespan
 )
 
