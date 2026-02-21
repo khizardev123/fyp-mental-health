@@ -10,13 +10,18 @@ interface AnalyticsEntry {
     emotion: string;
     confidence: number;
     mental_state: string;
+    severity: number;
+    tags: string[];
 }
 
 export default function Dashboard() {
     const [analyticsEntries, setAnalyticsEntries] = useState<AnalyticsEntry[]>([]);
     const [totalEntries, setTotalEntries] = useState(0);
 
-    const handleNewEntry = (entry: { emotion: string; confidence: number; crisis_prob: number; mental_state: string }) => {
+    const handleNewEntry = (entry: {
+        emotion: string; confidence: number; crisis_prob: number;
+        mental_state: string; severity: number; tags: string[];
+    }) => {
         setTotalEntries(prev => {
             const next = prev + 1;
             setAnalyticsEntries(prev => [...prev, {

@@ -15,6 +15,8 @@ interface AnalyticsEntry {
     emotion: string;
     confidence: number;
     mental_state: string;
+    severity: number;
+    tags: string[];
 }
 
 interface Props {
@@ -24,13 +26,11 @@ interface Props {
 
 // ─── Colour maps ──────────────────────────────────────────────────────────────
 const MENTAL_COLORS: Record<string, string> = {
-    normal: '#22c55e',
-    stable: '#22c55e',
-    anxiety: '#a78bfa',
-    depression: '#60a5fa',
-    stress: '#fb923c',
-    grief: '#f87171',
-    anger: '#facc15',
+    normal: '#22c55e', stable: '#22c55e',
+    anxiety: '#a78bfa', depression: '#60a5fa',
+    stress: '#fb923c', grief: '#f87171',
+    anger: '#facc15', fear: '#8b5cf6',
+    crisis: '#ef4444', joy: '#34d399',
 };
 
 // ─── Tab config ───────────────────────────────────────────────────────────────
@@ -41,18 +41,22 @@ const TABS = [
     { id: 'training', label: 'Training Metrics', Icon: Cpu },
 ];
 
-// ─── Fixed training metrics (from our actual model evaluation) ───────────────
+// ─── Unified Model training metrics (v2.0.0 actual results) ─────────────────
 const TRAINING_RADAR = [
-    { metric: 'Emotion Acc', A: 87 },
-    { metric: 'Crisis AUC', A: 97 },
-    { metric: 'MH Precision', A: 98 },
-    { metric: 'F1 Score', A: 86 },
-    { metric: 'Recall', A: 90 },
+    { metric: 'Accuracy', A: 74 },
+    { metric: 'Macro F1', A: 78 },
+    { metric: 'Crisis Rec', A: 65 },
+    { metric: 'Depr F1', A: 85 },
+    { metric: 'Stress F1', A: 100 },
 ];
 const MODEL_INFO = [
-    { name: 'Emotion Classifier', algo: 'TF-IDF + LogReg', accuracy: '86.7%', size: '2.3 MB', latency: '~5 ms' },
-    { name: 'Crisis Detector', algo: 'TF-IDF + Calib.', accuracy: '93.3%', size: '1.6 MB', latency: '~4 ms' },
-    { name: 'Mental Health Model', algo: 'TF-IDF + LogReg', accuracy: '98.3%', size: '1.1 MB', latency: '~3 ms' },
+    {
+        name: 'Unified Mental Health Model v2.0',
+        algo: 'TF-IDF (word 1-3gram + char 3-5gram) + CalibratedLinearSVC',
+        accuracy: '73.8%',
+        size: '12.64 MB',
+        latency: '~15 ms',
+    },
 ];
 
 // ─── Custom tooltip ───────────────────────────────────────────────────────────
@@ -87,11 +91,12 @@ export default function AnalyticsPanel({ entries = [], totalEntries }: Props) {
 
     const hasData = entries.length > 0;
 
-    // ── Trend data (real-time only)
+    // ── Trend data
     const trendData = entries.map(e => ({
         name: e.label,
         'Crisis Prob': +e.crisis_prob.toFixed(3),
         'Confidence': +e.confidence.toFixed(3),
+        'Severity': +(e.severity / 10).toFixed(2),
     }));
 
     // ── Emotion frequency
@@ -116,9 +121,15 @@ export default function AnalyticsPanel({ entries = [], totalEntries }: Props) {
     const avgConf = hasData
         ? (entries.reduce((a, b) => a + b.confidence, 0) / entries.length * 100).toFixed(1) + '%'
         : '—';
+    const avgSeverity = hasData
+        ? (entries.reduce((a, b) => a + (b.severity || 0), 0) / entries.length).toFixed(1)
+        : '—';
     const topEmotion = hasData
         ? Object.entries(emotionFreq).sort((a, b) => b[1] - a[1])[0]?.[0] || '—'
         : '—';
+    const allTags: Record<string, number> = {};
+    entries.forEach(e => (e.tags || []).forEach(t => { allTags[t] = (allTags[t] || 0) + 1; }));
+    const topTags = Object.entries(allTags).sort((a, b) => b[1] - a[1]).slice(0, 8);
 
     return (
         <div className="flex flex-col h-full bg-[var(--bg-secondary)] rounded-2xl border border-slate-700/50 overflow-hidden">
@@ -140,8 +151,8 @@ export default function AnalyticsPanel({ entries = [], totalEntries }: Props) {
                         key={tab.id}
                         onClick={() => setActiveTab(tab.id)}
                         className={`px-2.5 py-2 text-[11px] font-medium transition-all border-b-2 ${activeTab === tab.id
-                                ? 'border-rose-500 text-rose-400'
-                                : 'border-transparent text-slate-400 hover:text-slate-200'
+                            ? 'border-rose-500 text-rose-400'
+                            : 'border-transparent text-slate-400 hover:text-slate-200'
                             }`}
                     >
                         {tab.label}
@@ -156,7 +167,7 @@ export default function AnalyticsPanel({ entries = [], totalEntries }: Props) {
                     {/* ── TRENDS ─────────────────────────────────────── */}
                     {activeTab === 'trends' && (
                         <motion.div key="trends" initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} className="space-y-4">
-                            <p className="text-[11px] text-slate-400 font-medium">Mood Stability (Crisis Prob)</p>
+                            <p className="text-[11px] text-slate-400 font-medium">Distress Level (Crisis Prob + Severity)</p>
                             {hasData ? (
                                 <ResponsiveContainer width="100%" height={150}>
                                     <LineChart data={trendData}>
@@ -165,11 +176,12 @@ export default function AnalyticsPanel({ entries = [], totalEntries }: Props) {
                                         <YAxis tick={{ fontSize: 9, fill: '#64748b' }} domain={[0, 1]} tickCount={5} />
                                         <Tooltip content={<Tip />} />
                                         <Line type="monotone" dataKey="Crisis Prob" stroke="#f87171" strokeWidth={2} dot={{ r: 3, fill: '#f87171' }} />
+                                        <Line type="monotone" dataKey="Severity" stroke="#fb923c" strokeWidth={1.5} strokeDasharray="4 2" dot={{ r: 2, fill: '#fb923c' }} />
                                     </LineChart>
                                 </ResponsiveContainer>
                             ) : <EmptyState label="crisis trends" />}
 
-                            <p className="text-[11px] text-slate-400 font-medium">Emotion Confidence Over Time</p>
+                            <p className="text-[11px] text-slate-400 font-medium">Model Confidence Over Time</p>
                             {hasData ? (
                                 <ResponsiveContainer width="100%" height={130}>
                                     <LineChart data={trendData}>
@@ -204,6 +216,7 @@ export default function AnalyticsPanel({ entries = [], totalEntries }: Props) {
                                 {[
                                     { label: 'Avg Crisis', value: avgCrisis },
                                     { label: 'Avg Confidence', value: avgConf },
+                                    { label: 'Avg Severity', value: avgSeverity === '—' ? '—' : `${avgSeverity}/10` },
                                     { label: 'Top Emotion', value: topEmotion },
                                     { label: 'Session Entries', value: String(entries.length) },
                                 ].map(s => (
@@ -213,6 +226,18 @@ export default function AnalyticsPanel({ entries = [], totalEntries }: Props) {
                                     </div>
                                 ))}
                             </div>
+                            {topTags.length > 0 && (
+                                <div>
+                                    <p className="text-[11px] text-slate-400 font-medium mb-2">Recurring Semantic Tags</p>
+                                    <div className="flex flex-wrap gap-1.5">
+                                        {topTags.map(([tag, count]) => (
+                                            <span key={tag} className="text-[10px] px-2 py-0.5 bg-teal-500/10 border border-teal-500/20 text-teal-300 rounded-full capitalize">
+                                                {tag} <span className="text-teal-500">×{count}</span>
+                                            </span>
+                                        ))}
+                                    </div>
+                                </div>
+                            )}
                         </motion.div>
                     )}
 
@@ -268,10 +293,16 @@ export default function AnalyticsPanel({ entries = [], totalEntries }: Props) {
                                     <div key={m.name} className="bg-slate-800/50 rounded-lg p-2 border border-slate-700/50">
                                         <div className="text-white text-xs font-semibold mb-1">{m.name}</div>
                                         <div className="grid grid-cols-2 gap-x-3 text-[10px] text-slate-400">
-                                            <span>Algo: <span className="text-slate-300">{m.algo}</span></span>
-                                            <span>Acc: <span className="text-emerald-400 font-bold">{m.accuracy}</span></span>
+                                            <span className="col-span-2 text-slate-500 mb-1">{m.algo}</span>
+                                            <span>Accuracy: <span className="text-emerald-400 font-bold">{m.accuracy}</span></span>
                                             <span>Size: <span className="text-slate-300">{m.size}</span></span>
                                             <span>Latency: <span className="text-indigo-400">{m.latency}</span></span>
+                                            <span>Classes: <span className="text-purple-400">9</span></span>
+                                        </div>
+                                        <div className="mt-2 flex flex-wrap gap-1">
+                                            {['depression 85%', 'stress 100%', 'grief 100%', 'joy 84%', 'crisis bridge ✅'].map(t => (
+                                                <span key={t} className="text-[9px] px-1.5 py-0.5 bg-slate-700/60 rounded text-slate-400">{t}</span>
+                                            ))}
                                         </div>
                                     </div>
                                 ))}

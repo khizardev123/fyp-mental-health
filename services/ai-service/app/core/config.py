@@ -10,6 +10,11 @@ class Settings(BaseSettings):
     BASE_DIR: str = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))))
     ML_MODELS_DIR: str = os.path.join(BASE_DIR, "ml", "models")
     
+    # Unified model (preferred) — single model for all 9 classes
+    UNIFIED_MODEL_PATH: str = os.path.join(ML_MODELS_DIR, "unified_mental_health.joblib")
+    USE_UNIFIED_MODEL: bool = True
+
+    # Legacy 3-model paths (fallback if unified model not found)
     EMOTION_MODEL_PATH: str = os.path.join(ML_MODELS_DIR, "lightweight_emotion.joblib")
     CRISIS_MODEL_PATH: str = os.path.join(ML_MODELS_DIR, "lightweight_crisis.joblib")
     MH_MODEL_PATH: str = os.path.join(ML_MODELS_DIR, "lightweight_mental_health.joblib")

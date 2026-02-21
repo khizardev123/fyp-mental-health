@@ -13,7 +13,11 @@ class AvatarRequest(BaseModel):
     crisis_probability: Optional[float] = 0.0
     mental_state: Optional[str] = "normal"
     mental_health_confidence: Optional[float] = 0.0
-    conversation_history: Optional[List[Dict[str, str]]] = None
+    # Unified model v2 fields
+    severity_rating: Optional[int] = 0
+    tags: Optional[List[str]] = []
+    semantic_summary: Optional[str] = ""
+    conversation_history: Optional[List[Dict]] = None
 
 @router.post("/respond")
 async def respond(request: AvatarRequest):
@@ -25,5 +29,8 @@ async def respond(request: AvatarRequest):
         crisis_probability=request.crisis_probability or 0.0,
         mental_state=request.mental_state or "normal",
         mental_health_confidence=request.mental_health_confidence or 0.0,
+        severity_rating=request.severity_rating or 0,
+        tags=request.tags or [],
+        semantic_summary=request.semantic_summary or "",
         conversation_history=request.conversation_history,
     )

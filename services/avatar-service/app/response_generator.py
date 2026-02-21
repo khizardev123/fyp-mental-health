@@ -249,6 +249,7 @@ You are NOT a licensed therapist. Always recommend professional help for serious
 PERSONALITY: Warm, gentle, non-judgmental. Validates feelings before offering perspective.
 RESPONSE FORMAT: 3-5 sentences. Acknowledge emotion first. End with an open question.
 SAFETY: If risk_level is HIGH or CRISIS, include Umang 0317-4288665. Never minimise feelings.
+CONTEXT: Use the provided severity_rating (1-10), tags, and semantic_summary to tailor your empathy.
 """
 
 
@@ -263,11 +264,14 @@ def generate_avatar_response(
     crisis_probability: float = 0.0,
     mental_state: str = "normal",
     mental_health_confidence: float = 0.0,
+    severity_rating: int = 0,
+    tags: List[str] = [],
+    semantic_summary: str = "",
     conversation_history: Optional[list] = None,
 ) -> dict:
     """
     Generate a contextual avatar response using:
-    - All 3 ML model outputs as primary inputs
+    - All 3 ML model outputs (including unified v2 fields) as primary inputs
     - GPT-4o-mini if OPENAI_API_KEY is set, otherwise the smart template engine
     """
 
@@ -276,13 +280,21 @@ def generate_avatar_response(
         try:
             messages = [{"role": "system", "content": GPT_SYSTEM_PROMPT}]
             if conversation_history:
-                messages.extend(conversation_history[-6:])
+                # Clean history: only keep role and content for GPT safety
+                clean_history = [
+                    {"role": h["role"], "content": h.get("content") or h.get("text", "")}
+                    for h in conversation_history[-6:]
+                ]
+                messages.extend(clean_history)
 
             user_msg = (
                 f'Journal: "{journal_text}"\n'
                 f'Emotion Model → {emotion} ({confidence*100:.1f}%)\n'
                 f'Crisis Model  → {risk_level} (p={crisis_probability:.2f})\n'
                 f'Mental Health → {mental_state} ({mental_health_confidence*100:.1f}%)\n'
+                f'Severity      → {severity_rating}/10\n'
+                f'Tags          → {", ".join(tags) if tags else "none"}\n'
+                f'Summary       → {semantic_summary}\n'
                 f'{"CRITICAL: Include Umang 0317-4288665" if risk_level in ["HIGH","CRISIS"] else ""}'
             )
             messages.append({"role": "user", "content": user_msg})
