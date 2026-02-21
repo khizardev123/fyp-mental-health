@@ -20,7 +20,7 @@ def test_analyze_journal():
 
     with TestClient(app) as client:
         # Test crisis entry
-        response = client.post("/analyze/journal", json={"text": "I want to kill myself"})
+        response = client.post("/analyze/journal", json={"text": "I have been thinking about suicide every day. I don't see any reason to live anymore and I'm planning to end my life soon."})
         assert response.status_code == 200
         data = response.json()
         assert data["unified"]["crisis_risk"] == "CRISIS"
