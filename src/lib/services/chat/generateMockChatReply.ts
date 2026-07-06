@@ -23,6 +23,7 @@ export function generateMockChatReply(
 ): ChatGenerationResult {
   const msg = input.userMessage.trim();
   const emotion = normalizeEmotion(input.emotionContext.emotion);
+  const hasJournalContinuity = input.journalContext.selectedEntries.length > 0;
 
   const keyword = (re: RegExp) => re.test(msg);
 
@@ -75,12 +76,25 @@ export function generateMockChatReply(
       "Would you like to say more about what this is like for you? If it helps, you can share what you need: comfort, perspective, or just someone to stay with you while you unload.";
   }
 
-  const reply = clampReply(`${tonePrefix}${body}`);
+  const continuityPrefix = hasJournalContinuity
+    ? "I am keeping your recent journal reflections in mind. "
+    : "";
+  const reply = clampReply(`${tonePrefix}${continuityPrefix}${body}`);
 
-  const emotionContext =
-    emotion != null
-      ? `Personalized using your latest journal mood (“${input.emotionContext.emotion}”).`
-      : "No recent journal mood on file; reply uses your message only.";
+  const contextNotes: string[] = [];
+  if (emotion != null) {
+    contextNotes.push(
+      `Personalized using your latest journal mood (“${input.emotionContext.emotion}”).`,
+    );
+  } else {
+    contextNotes.push("No recent journal mood on file.");
+  }
+  if (hasJournalContinuity) {
+    contextNotes.push(
+      `Continuity uses ${input.journalContext.selectedEntries.length} recent journal entr${input.journalContext.selectedEntries.length === 1 ? "y" : "ies"}.`,
+    );
+  }
+  const emotionContext = contextNotes.join(" ");
 
   return { reply, emotionContext };
 }

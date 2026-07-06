@@ -1,4 +1,9 @@
+import dns from "dns";
 import mongoose from "mongoose";
+
+// Windows often blocks SRV lookups via the system resolver; public DNS works for Atlas.
+dns.setServers(["8.8.8.8", "8.8.4.4", "1.1.1.1"]);
+dns.setDefaultResultOrder("ipv4first");
 
 interface MongooseCache {
   conn: typeof mongoose | null;
@@ -35,7 +40,10 @@ export async function connectDB(): Promise<typeof mongoose> {
 
   if (!cache.promise) {
     cache.promise = mongoose
-      .connect(uri)
+      .connect(uri, {
+        family: 4,
+        serverSelectionTimeoutMS: 15000,
+      })
       .then((mongooseInstance) => {
         console.log("[MongoDB] Connected successfully");
         return mongooseInstance;

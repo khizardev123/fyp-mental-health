@@ -71,7 +71,6 @@ export function LoginForm() {
       setStatus("success");
       setMessage(data.message ?? "Signed in successfully.");
       router.push("/dashboard");
-      router.refresh();
     } catch {
       setStatus("error");
       setMessage("Network error. Please check your connection and try again.");
@@ -87,22 +86,15 @@ export function LoginForm() {
       {message && (
         <div
           role="alert"
-          className={`rounded-2xl border px-4 py-3 text-sm ${
-            status === "success"
-              ? "border-emerald-700/40 bg-emerald-50 text-emerald-900"
-              : "border-red-700/30 bg-red-50 text-red-900"
-          }`}
+          className={status === "success" ? "alert-success" : "alert-error"}
         >
           {message}
         </div>
       )}
 
       <div>
-        <label
-          htmlFor="login-email"
-          className="mb-1.5 block text-sm font-medium text-white/95"
-        >
-          Email<span className="text-red-200">*</span>
+        <label htmlFor="login-email" className="label-text">
+          Email<span className="text-error">*</span>
         </label>
         <input
           id="login-email"
@@ -111,24 +103,21 @@ export function LoginForm() {
           autoComplete="email"
           value={email}
           onChange={(e) => setEmail(e.target.value)}
-          placeholder="Email"
-          className="w-full rounded-xl border border-white/20 bg-white/15 px-4 py-2.5 text-white placeholder:text-white/50 outline-none focus:border-white/40 focus:bg-white/20"
+          placeholder="you@example.com"
+          className="input-field"
           aria-invalid={fieldErrors.email ? true : undefined}
           aria-describedby={fieldErrors.email ? "login-email-error" : undefined}
         />
         {fieldErrors.email && (
-          <p id="login-email-error" className="mt-1 text-xs text-red-200">
+          <p id="login-email-error" className="mt-1.5 text-xs text-error">
             {fieldErrors.email}
           </p>
         )}
       </div>
 
       <div>
-        <label
-          htmlFor="login-password"
-          className="mb-1.5 block text-sm font-medium text-white/95"
-        >
-          Password<span className="text-red-200">*</span>
+        <label htmlFor="login-password" className="label-text">
+          Password<span className="text-error">*</span>
         </label>
         <div className="relative">
           <input
@@ -138,8 +127,8 @@ export function LoginForm() {
             autoComplete="current-password"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
-            placeholder="Password"
-            className="w-full rounded-xl border border-white/20 bg-white/15 py-2.5 pl-4 pr-12 text-white placeholder:text-white/50 outline-none focus:border-white/40 focus:bg-white/20"
+            placeholder="Your password"
+            className="input-field pr-12"
             aria-invalid={fieldErrors.password ? true : undefined}
             aria-describedby={
               fieldErrors.password ? "login-password-error" : undefined
@@ -148,7 +137,7 @@ export function LoginForm() {
           <button
             type="button"
             onClick={() => setShowPassword((v) => !v)}
-            className="absolute right-2 top-1/2 -translate-y-1/2 rounded-lg p-2 text-white/80 hover:bg-white/10 hover:text-white"
+            className="absolute right-2 top-1/2 -translate-y-1/2 rounded-lg p-2 text-foreground-secondary transition hover:bg-hover-bg hover:text-foreground"
             aria-label={showPassword ? "Hide password" : "Show password"}
           >
             {showPassword ? (
@@ -159,7 +148,7 @@ export function LoginForm() {
           </button>
         </div>
         {fieldErrors.password && (
-          <p id="login-password-error" className="mt-1 text-xs text-red-200">
+          <p id="login-password-error" className="mt-1.5 text-xs text-error">
             {fieldErrors.password}
           </p>
         )}
@@ -168,16 +157,16 @@ export function LoginForm() {
       <button
         type="submit"
         disabled={status === "loading"}
-        className="w-full rounded-xl bg-[#4a4a45] py-3 text-center text-sm font-medium text-white/95 transition hover:bg-[#5c5c56] disabled:cursor-not-allowed disabled:opacity-70"
+        className="btn-primary w-full"
       >
         {status === "loading" ? "Signing in…" : "Sign in"}
       </button>
 
-      <p className="text-center text-sm text-white/80">
+      <p className="text-center text-sm text-foreground-secondary">
         Don&apos;t have an account?{" "}
         <Link
           href="/signup"
-          className="font-medium text-white underline-offset-4 hover:underline"
+          className="font-medium text-primary underline-offset-4 transition hover:underline"
         >
           Sign up
         </Link>

@@ -32,6 +32,16 @@ const JournalSchema = new Schema(
       maxlength: [4000, "Emotion message cannot exceed 4,000 characters"],
       default: null,
     },
+    contextInsight: {
+      type: String,
+      trim: true,
+      maxlength: [2_000, "Context insight cannot exceed 2,000 characters"],
+      default: null,
+    },
+    contextInsightUpdatedAt: {
+      type: Date,
+      default: null,
+    },
   },
   { timestamps: true },
 );

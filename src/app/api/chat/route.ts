@@ -7,9 +7,14 @@ import { mapInfrastructureFailure } from "@/lib/server/mapInfrastructureFailure"
 import { orchestrateChatReply } from "@/lib/services/chat/orchestrateChatReply";
 import { mergeEmotionContext } from "@/lib/services/chat/mergeEmotionContext";
 import type { EmotionContextForChat } from "@/lib/services/chat/types";
+import {
+  aggregateJournalContext,
+  fetchRecentJournalEntriesForContext,
+} from "@/lib/services/chat/contextWindow";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+const CONTEXT_INSIGHT_MAX_CHARS = 2_000;
 
 async function loadLatestEmotionContext(
   userId: string,
@@ -60,11 +65,38 @@ export async function POST(request: NextRequest) {
 
     const serverCtx = await loadLatestEmotionContext(session.sub);
     const merged = mergeEmotionContext(serverCtx, parsed.data.emotionContext);
+    const recentEntries = await fetchRecentJournalEntriesForContext({
+      userId: session.sub,
+      requestedWindowSize: parsed.data.contextWindowSize,
+    });
+    const journalContext = aggregateJournalContext({
+      currentMessage: parsed.data.message,
+      recentEntries,
+    });
 
     const generation = orchestrateChatReply({
       userMessage: parsed.data.message,
       emotionContext: merged,
+      journalContext,
     });
+
+    if (journalContext.selectedEntries[0]) {
+      const rawInsight = `Used ${journalContext.selectedEntries.length}/${journalContext.windowSizeUsed} recent journal entries while generating a chat response.\n${journalContext.contextSummary}`;
+      const contextInsight =
+        rawInsight.length <= CONTEXT_INSIGHT_MAX_CHARS
+          ? rawInsight
+          : `${rawInsight.slice(0, CONTEXT_INSIGHT_MAX_CHARS - 1).trimEnd()}…`;
+      try {
+        await Journal.findByIdAndUpdate(journalContext.selectedEntries[0].id, {
+          $set: {
+            contextInsight,
+            contextInsightUpdatedAt: new Date(),
+          },
+        });
+      } catch (persistErr: unknown) {
+        console.warn("[api/chat POST] context insight save skipped:", persistErr);
+      }
+    }
 
     return NextResponse.json({
       reply: generation.reply,

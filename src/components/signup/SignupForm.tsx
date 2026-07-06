@@ -96,22 +96,15 @@ export function SignupForm() {
       {message && (
         <div
           role="alert"
-          className={`rounded-2xl border px-4 py-3 text-sm ${
-            status === "success"
-              ? "border-emerald-700/40 bg-emerald-50 text-emerald-900"
-              : "border-red-700/30 bg-red-50 text-red-900"
-          }`}
+          className={status === "success" ? "alert-success" : "alert-error"}
         >
           {message}
         </div>
       )}
 
       <div>
-        <label
-          htmlFor="name"
-          className="mb-1.5 block text-sm font-medium text-white/95"
-        >
-          Name<span className="text-red-200">*</span>
+        <label htmlFor="name" className="label-text">
+          Name<span className="text-error">*</span>
         </label>
         <input
           id="name"
@@ -121,23 +114,20 @@ export function SignupForm() {
           value={name}
           onChange={(e) => setName(e.target.value)}
           placeholder="Your name"
-          className="w-full rounded-xl border border-white/20 bg-white/15 px-4 py-2.5 text-white placeholder:text-white/50 outline-none ring-0 transition focus:border-white/40 focus:bg-white/20"
+          className="input-field"
           aria-invalid={fieldErrors.name ? true : undefined}
           aria-describedby={fieldErrors.name ? "name-error" : undefined}
         />
         {fieldErrors.name && (
-          <p id="name-error" className="mt-1 text-xs text-red-200">
+          <p id="name-error" className="mt-1.5 text-xs text-error">
             {fieldErrors.name}
           </p>
         )}
       </div>
 
       <div>
-        <label
-          htmlFor="email"
-          className="mb-1.5 block text-sm font-medium text-white/95"
-        >
-          Email<span className="text-red-200">*</span>
+        <label htmlFor="email" className="label-text">
+          Email<span className="text-error">*</span>
         </label>
         <input
           id="email"
@@ -146,24 +136,21 @@ export function SignupForm() {
           autoComplete="email"
           value={email}
           onChange={(e) => setEmail(e.target.value)}
-          placeholder="Email"
-          className="w-full rounded-xl border border-white/20 bg-white/15 px-4 py-2.5 text-white placeholder:text-white/50 outline-none focus:border-white/40 focus:bg-white/20"
+          placeholder="you@example.com"
+          className="input-field"
           aria-invalid={fieldErrors.email ? true : undefined}
           aria-describedby={fieldErrors.email ? "email-error" : undefined}
         />
         {fieldErrors.email && (
-          <p id="email-error" className="mt-1 text-xs text-red-200">
+          <p id="email-error" className="mt-1.5 text-xs text-error">
             {fieldErrors.email}
           </p>
         )}
       </div>
 
       <div>
-        <label
-          htmlFor="password"
-          className="mb-1.5 block text-sm font-medium text-white/95"
-        >
-          Password<span className="text-red-200">*</span>
+        <label htmlFor="password" className="label-text">
+          Password<span className="text-error">*</span>
         </label>
         <div className="relative">
           <input
@@ -173,15 +160,15 @@ export function SignupForm() {
             autoComplete="new-password"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
-            placeholder="Password"
-            className="w-full rounded-xl border border-white/20 bg-white/15 py-2.5 pl-4 pr-12 text-white placeholder:text-white/50 outline-none focus:border-white/40 focus:bg-white/20"
+            placeholder="At least 8 characters"
+            className="input-field pr-12"
             aria-invalid={fieldErrors.password ? true : undefined}
             aria-describedby={fieldErrors.password ? "password-error" : undefined}
           />
           <button
             type="button"
             onClick={() => setShowPassword((v) => !v)}
-            className="absolute right-2 top-1/2 -translate-y-1/2 rounded-lg p-2 text-white/80 hover:bg-white/10 hover:text-white"
+            className="absolute right-2 top-1/2 -translate-y-1/2 rounded-lg p-2 text-foreground-secondary transition hover:bg-hover-bg hover:text-foreground"
             aria-label={showPassword ? "Hide password" : "Show password"}
           >
             {showPassword ? (
@@ -192,7 +179,7 @@ export function SignupForm() {
           </button>
         </div>
         {fieldErrors.password && (
-          <p id="password-error" className="mt-1 text-xs text-red-200">
+          <p id="password-error" className="mt-1.5 text-xs text-error">
             {fieldErrors.password}
           </p>
         )}
@@ -201,14 +188,17 @@ export function SignupForm() {
       <button
         type="submit"
         disabled={status === "loading"}
-        className="w-full rounded-xl bg-[#4a4a45] py-3 text-center text-sm font-medium text-white/95 transition hover:bg-[#5c5c56] disabled:cursor-not-allowed disabled:opacity-70"
+        className="btn-primary w-full"
       >
         {status === "loading" ? "Creating account…" : "Create account"}
       </button>
 
-      <p className="text-center text-sm text-white/80">
+      <p className="text-center text-sm text-foreground-secondary">
         Already have an account?{" "}
-        <Link href="/login" className="font-medium text-white underline-offset-4 hover:underline">
+        <Link
+          href="/login"
+          className="font-medium text-primary underline-offset-4 transition hover:underline"
+        >
           Sign in
         </Link>
       </p>

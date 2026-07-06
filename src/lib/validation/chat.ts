@@ -14,6 +14,7 @@ export const chatRequestSchema = z.object({
     .min(1, "Message cannot be empty.")
     .max(8_000, "Message is too long."),
   emotionContext: emotionContextSchema.optional(),
+  contextWindowSize: z.number().int().min(1).max(10).optional(),
 });
 
 export type ChatRequestBody = z.infer<typeof chatRequestSchema>;

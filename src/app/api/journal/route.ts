@@ -10,7 +10,7 @@ import { serializePublicJournalEntry } from "@/lib/journal/serializePublicEntry"
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-export async function GET() {
+export async function GET(request: NextRequest) {
   try {
     const session = await getAuthenticatedUser();
     if (!session?.sub) {
@@ -19,9 +19,18 @@ export async function GET() {
 
     await connectDB();
 
-    const docs = await Journal.find({ userId: session.sub })
-      .sort({ createdAt: -1 })
-      .lean();
+    const rawLimit = request.nextUrl.searchParams.get("limit");
+    const parsedLimit = rawLimit ? Number.parseInt(rawLimit, 10) : null;
+    const limit =
+      parsedLimit && Number.isFinite(parsedLimit)
+        ? Math.min(100, Math.max(1, parsedLimit))
+        : null;
+
+    const query = Journal.find({ userId: session.sub }).sort({ createdAt: -1 });
+    if (limit) {
+      query.limit(limit);
+    }
+    const docs = await query.lean();
 
     const entries = docs.map((doc) =>
       serializePublicJournalEntry({
@@ -32,6 +41,8 @@ export async function GET() {
         emotion: doc.emotion ?? null,
         confidence: doc.confidence ?? null,
         emotionMessage: doc.emotionMessage ?? null,
+        contextInsight: doc.contextInsight ?? null,
+        contextInsightUpdatedAt: doc.contextInsightUpdatedAt ?? null,
       }),
     );
 

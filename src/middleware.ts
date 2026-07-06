@@ -56,7 +56,9 @@ export async function middleware(request: NextRequest) {
     pathname.startsWith("/api/profile") ||
     pathname.startsWith("/api/journal") ||
     pathname.startsWith("/api/emotion") ||
-    pathname.startsWith("/api/chat")
+    pathname.startsWith("/api/chat") ||
+    pathname.startsWith("/api/serenemind/chat") ||
+    pathname.startsWith("/api/serenemind/avatar")
   ) {
     const apiBlock = await guardApiWithJwt(request);
     if (apiBlock) return apiBlock;
@@ -95,5 +97,9 @@ export const config = {
     "/chat/:path*",
     "/api/chat",
     "/api/chat/:path*",
+    "/api/serenemind/chat",
+    "/api/serenemind/chat/:path*",
+    "/api/serenemind/avatar",
+    "/api/serenemind/avatar/:path*",
   ],
 };

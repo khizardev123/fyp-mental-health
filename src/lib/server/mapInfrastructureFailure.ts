@@ -28,7 +28,7 @@ export function mapInfrastructureFailure(
   }
 
   if (
-    /ECONNREFUSED|ENOTFOUND|querySrv|MongoNetworkError|MongoServerSelectionError|getaddrinfo/i.test(
+    /ECONNREFUSED|ENOTFOUND|querySrv|MongoNetworkError|MongooseServerSelectionError|MongoServerSelectionError|Server selection timed out|getaddrinfo/i.test(
       msg,
     )
   ) {
@@ -36,7 +36,7 @@ export function mapInfrastructureFailure(
       status: 503,
       body: {
         error:
-          "Cannot connect to MongoDB. Start MongoDB on your machine, or set MONGODB_URI to a valid Atlas connection string in .env.local.",
+          "Cannot connect to MongoDB. In Atlas, open Database & Network Access → IP Access List, add your IP (or 0.0.0.0/0 for dev), then restart the dev server.",
       },
     };
   }

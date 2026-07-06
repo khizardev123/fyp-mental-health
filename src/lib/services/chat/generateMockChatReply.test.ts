@@ -11,6 +11,19 @@ describe("generateMockChatReply", () => {
         emotionMessage: "Signs of worry.",
         journalEntryCreatedAt: null,
       },
+      journalContext: {
+        windowSizeUsed: 1,
+        selectedEntries: [
+          {
+            id: "1",
+            createdAt: new Date().toISOString(),
+            contentExcerpt: "I have been worried this week.",
+            emotion: "anxious",
+            emotionMessage: "Stress has been high.",
+          },
+        ],
+        contextSummary: "Entry 1: mood=anxious.",
+      },
     });
     expect(out.reply.toLowerCase()).toMatch(/intense|slow|together|overwhelm/);
     expect(out.emotionContext).toMatch(/journal mood/i);
@@ -24,6 +37,11 @@ describe("generateMockChatReply", () => {
         confidence: null,
         emotionMessage: null,
         journalEntryCreatedAt: null,
+      },
+      journalContext: {
+        windowSizeUsed: 0,
+        selectedEntries: [],
+        contextSummary: "",
       },
     });
     expect(out.reply.length).toBeGreaterThan(10);

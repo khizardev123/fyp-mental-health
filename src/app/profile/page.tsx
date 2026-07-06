@@ -2,6 +2,8 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
+import { AppHeader } from "@/components/ui/AppHeader";
+import { LoadingScreen } from "@/components/ui/LoadingScreen";
 
 type ProfileUser = {
   id: string;
@@ -13,18 +15,14 @@ type ProfileUser = {
 };
 
 export default function ProfilePage() {
-  const [loadState, setLoadState] = useState<"loading" | "ready" | "error">(
-    "loading",
-  );
+  const [loadState, setLoadState] = useState<"loading" | "ready" | "error">("loading");
   const [loadError, setLoadError] = useState<string | null>(null);
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [preferences, setPreferences] = useState("");
   const [emotionalGoals, setEmotionalGoals] = useState("");
   const [bio, setBio] = useState("");
-  const [saveState, setSaveState] = useState<"idle" | "saving" | "success" | "error">(
-    "idle",
-  );
+  const [saveState, setSaveState] = useState<"idle" | "saving" | "success" | "error">("idle");
   const [saveMessage, setSaveMessage] = useState<string | null>(null);
 
   const fetchProfile = useCallback(async () => {
@@ -51,9 +49,7 @@ export default function ProfilePage() {
     }
   }, []);
 
-  useEffect(() => {
-    fetchProfile();
-  }, [fetchProfile]);
+  useEffect(() => { fetchProfile(); }, [fetchProfile]);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -115,21 +111,14 @@ export default function ProfilePage() {
   }
 
   if (loadState === "loading") {
-    return (
-      <div className="flex min-h-screen items-center justify-center bg-[#f7f4ef] text-[#1e2a1c]">
-        <p className="text-sm text-[#1e2a1c]/70">Loading profile…</p>
-      </div>
-    );
+    return <LoadingScreen message="Loading profile…" />;
   }
 
   if (loadState === "error") {
     return (
-      <div className="flex min-h-screen flex-col items-center justify-center bg-[#9cb09d] px-6 text-center text-[#1e2a1c]">
-        <p className="text-sm">{loadError}</p>
-        <Link
-          href="/login"
-          className="mt-4 rounded-full bg-[#2d3a2a] px-6 py-2 text-sm text-white"
-        >
+      <div className="page-shell flex flex-col items-center justify-center px-6 text-center">
+        <p className="text-foreground-secondary">{loadError}</p>
+        <Link href="/login" className="btn-primary mt-6">
           Sign in
         </Link>
       </div>
@@ -137,62 +126,40 @@ export default function ProfilePage() {
   }
 
   return (
-    <div className="min-h-screen bg-[#f7f4ef] text-[#1e2a1c]">
-      <header className="border-b border-[#1e2a1c]/10 bg-white/90 px-6 py-4 backdrop-blur">
-        <div className="mx-auto flex max-w-3xl items-center justify-between">
-          <Link href="/" className="font-serif text-lg text-[#2d3a2a]">
-            serenemind
-          </Link>
-          <div className="flex gap-4 text-sm">
-            <Link
-              href="/dashboard"
-              className="text-[#1e2a1c]/80 hover:text-[#1e2a1c]"
-            >
-              Dashboard
-            </Link>
-            <Link
-              href="/chat"
-              className="text-[#1e2a1c]/80 hover:text-[#1e2a1c]"
-            >
-              Chat
-            </Link>
-            <Link href="/" className="text-[#1e2a1c]/80 hover:text-[#1e2a1c]">
-              Home
-            </Link>
-          </div>
+    <div className="page-shell">
+      <AppHeader
+        maxWidth="3xl"
+        nav={[
+          { href: "/dashboard", label: "Dashboard" },
+          { href: "/chat", label: "Chat" },
+          { href: "/journal", label: "Journal" },
+        ]}
+      />
+
+      <main className="page-main-narrow fade-in">
+        <div className="mb-10">
+          <h1 className="section-title">Your profile</h1>
+          <p className="section-subtitle">
+            Tell SereneMind about your preferences and goals so responses can
+            feel more personal. Passwords are never shown here.
+          </p>
         </div>
-      </header>
 
-      <main className="mx-auto max-w-3xl px-6 py-10">
-        <h1 className="font-serif text-3xl text-[#1e2a1c]">Your profile</h1>
-        <p className="mt-2 text-sm text-[#1e2a1c]/75">
-          Tell SereneMind about your preferences and goals so responses can feel
-          more personal. Passwords are never shown here.
-        </p>
-
-        <form
-          onSubmit={handleSubmit}
-          className="mt-8 space-y-6 rounded-2xl border border-[#1e2a1c]/10 bg-white p-6 shadow-sm"
-        >
+        <form onSubmit={handleSubmit} className="card-padded space-y-8">
           {saveMessage && (
             <div
               role="alert"
-              className={`rounded-xl border px-4 py-3 text-sm ${
-                saveState === "success"
-                  ? "border-emerald-700/30 bg-emerald-50 text-emerald-900"
-                  : "border-red-700/25 bg-red-50 text-red-900"
-              }`}
+              className={
+                saveState === "success" ? "alert-success" : "alert-error"
+              }
             >
               {saveMessage}
             </div>
           )}
 
-          <div className="grid gap-4 sm:grid-cols-2">
+          <div className="grid gap-6 sm:grid-cols-2">
             <div>
-              <label
-                htmlFor="profile-name"
-                className="mb-1 block text-xs font-medium uppercase tracking-wide text-[#1e2a1c]/60"
-              >
+              <label htmlFor="profile-name" className="label-muted">
                 Name
               </label>
               <input
@@ -203,33 +170,28 @@ export default function ProfilePage() {
                 value={name}
                 onChange={(e) => setName(e.target.value)}
                 maxLength={120}
-                className="w-full rounded-lg border border-[#1e2a1c]/20 bg-white px-3 py-2 text-sm text-[#1e2a1c] outline-none focus:border-[#2d3a2a]"
+                className="input-field"
               />
-              <p className="mt-1 text-right text-xs text-[#1e2a1c]/50">
+              <p className="mt-1.5 text-right text-xs text-foreground-secondary">
                 {name.length}/120
               </p>
             </div>
             <div>
-              <label className="mb-1 block text-xs font-medium uppercase tracking-wide text-[#1e2a1c]/60">
-                Email
-              </label>
+              <label className="label-muted">Email</label>
               <input
                 type="email"
                 value={email}
                 readOnly
-                className="w-full cursor-not-allowed rounded-lg border border-[#1e2a1c]/15 bg-[#f7f4ef] px-3 py-2 text-sm text-[#1e2a1c]/80"
+                className="input-readonly"
               />
             </div>
           </div>
 
           <div>
-            <label
-              htmlFor="preferences"
-              className="mb-1 block text-sm font-medium text-[#1e2a1c]"
-            >
+            <label htmlFor="preferences" className="label-text">
               Preferences
             </label>
-            <p className="mb-2 text-xs text-[#1e2a1c]/60">
+            <p className="mb-3 text-xs text-foreground-secondary">
               Topics, tone, or habits you want the experience to respect (max
               500 characters).
             </p>
@@ -240,21 +202,19 @@ export default function ProfilePage() {
               value={preferences}
               onChange={(e) => setPreferences(e.target.value)}
               maxLength={500}
-              className="w-full rounded-lg border border-[#1e2a1c]/20 px-3 py-2 text-sm text-[#1e2a1c] outline-none focus:border-[#2d3a2a]"
+              className="textarea-field"
+              placeholder="e.g. I prefer gentle, encouraging language…"
             />
-            <p className="mt-1 text-right text-xs text-[#1e2a1c]/50">
+            <p className="mt-1.5 text-right text-xs text-foreground-secondary">
               {preferences.length}/500
             </p>
           </div>
 
           <div>
-            <label
-              htmlFor="emotionalGoals"
-              className="mb-1 block text-sm font-medium text-[#1e2a1c]"
-            >
+            <label htmlFor="emotionalGoals" className="label-text">
               Emotional goals
             </label>
-            <p className="mb-2 text-xs text-[#1e2a1c]/60">
+            <p className="mb-3 text-xs text-foreground-secondary">
               What you are working toward emotionally (max 1000 characters).
             </p>
             <textarea
@@ -264,19 +224,20 @@ export default function ProfilePage() {
               value={emotionalGoals}
               onChange={(e) => setEmotionalGoals(e.target.value)}
               maxLength={1000}
-              className="w-full rounded-lg border border-[#1e2a1c]/20 px-3 py-2 text-sm text-[#1e2a1c] outline-none focus:border-[#2d3a2a]"
+              className="textarea-field"
+              placeholder="e.g. Building more self-compassion and managing stress…"
             />
-            <p className="mt-1 text-right text-xs text-[#1e2a1c]/50">
+            <p className="mt-1.5 text-right text-xs text-foreground-secondary">
               {emotionalGoals.length}/1000
             </p>
           </div>
 
           <div>
-            <label
-              htmlFor="bio"
-              className="mb-1 block text-sm font-medium text-[#1e2a1c]"
-            >
-              Bio <span className="font-normal text-[#1e2a1c]/50">(optional)</span>
+            <label htmlFor="bio" className="label-text">
+              Bio{" "}
+              <span className="font-normal text-foreground-secondary">
+                (optional)
+              </span>
             </label>
             <textarea
               id="bio"
@@ -285,9 +246,10 @@ export default function ProfilePage() {
               value={bio}
               onChange={(e) => setBio(e.target.value)}
               maxLength={2000}
-              className="w-full rounded-lg border border-[#1e2a1c]/20 px-3 py-2 text-sm text-[#1e2a1c] outline-none focus:border-[#2d3a2a]"
+              className="textarea-field"
+              placeholder="A little about you, if you'd like to share…"
             />
-            <p className="mt-1 text-right text-xs text-[#1e2a1c]/50">
+            <p className="mt-1.5 text-right text-xs text-foreground-secondary">
               {bio.length}/2000
             </p>
           </div>
@@ -295,7 +257,7 @@ export default function ProfilePage() {
           <button
             type="submit"
             disabled={saveState === "saving"}
-            className="rounded-full bg-[#2d3a2a] px-6 py-2.5 text-sm font-medium text-white transition hover:bg-[#1e2a1c] disabled:opacity-60"
+            className="btn-primary"
           >
             {saveState === "saving" ? "Saving…" : "Save profile"}
           </button>

@@ -23,16 +23,25 @@ export function ChatMessageList({ messages, streaming }: ChatMessageListProps) {
 
   return (
     <div
-      className="flex flex-1 flex-col gap-4 overflow-y-auto px-1 py-2"
+      className="flex flex-1 flex-col gap-5 overflow-y-auto px-1 py-2"
       role="log"
       aria-live="polite"
       aria-relevant="additions"
     >
       {messages.length === 0 && (
-        <p className="rounded-2xl border border-dashed border-[#1e2a1c]/15 bg-white/50 px-4 py-8 text-center text-sm text-[#1e2a1c]/60">
-          Say hello, or share what&apos;s on your mind. I&apos;m here to listen
-          and respond with care.
-        </p>
+        <div className="card-padded border-dashed surface-secondary py-10 text-center">
+          <span
+            className="mb-4 inline-flex h-12 w-12 items-center justify-center rounded-2xl bg-section text-xl"
+            aria-hidden
+          >
+            💬
+          </span>
+          <p className="text-sm leading-relaxed text-foreground-secondary">
+            Say hello, or share what&apos;s on your mind.
+            <br />
+            I&apos;m here to listen and respond with care.
+          </p>
+        </div>
       )}
 
       {messages.map((m) => (
@@ -42,10 +51,10 @@ export function ChatMessageList({ messages, streaming }: ChatMessageListProps) {
         >
           <ChatAvatar variant={m.role === "user" ? "user" : "assistant"} />
           <div
-            className={`max-w-[min(100%,28rem)] rounded-2xl px-4 py-3 text-sm leading-relaxed shadow-sm ${
+            className={`max-w-[min(100%,28rem)] rounded-2xl px-4 py-3.5 text-sm leading-relaxed shadow-card ${
               m.role === "user"
-                ? "rounded-tr-sm bg-[#2d3a2a] text-white"
-                : "rounded-tl-sm border border-[#1e2a1c]/10 bg-white text-[#1e2a1c]/90"
+                ? "rounded-tr-md bg-primary text-white"
+                : "rounded-tl-md border border-border bg-card text-foreground"
             }`}
           >
             <p className="whitespace-pre-wrap break-words">{m.content}</p>
@@ -56,9 +65,9 @@ export function ChatMessageList({ messages, streaming }: ChatMessageListProps) {
       {streaming && (
         <div className="flex gap-3">
           <ChatAvatar variant="assistant" />
-          <div className="flex items-center gap-2 rounded-2xl rounded-tl-sm border border-[#1e2a1c]/10 bg-white px-4 py-3 text-sm text-[#1e2a1c]/55 shadow-sm">
+          <div className="flex items-center gap-2 rounded-2xl rounded-tl-md border border-border bg-card px-4 py-3.5 text-sm text-foreground-secondary shadow-card">
             <span
-              className="inline-flex h-2 w-2 animate-pulse rounded-full bg-[#2d3a2a]/50"
+              className="inline-flex h-2 w-2 animate-pulse rounded-full bg-primary/50"
               aria-hidden
             />
             Thinking…

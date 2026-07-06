@@ -11,6 +11,8 @@ type JournalLike = {
   emotion?: string | null;
   confidence?: number | null;
   emotionMessage?: string | null;
+  contextInsight?: string | null;
+  contextInsightUpdatedAt?: Date | null;
 };
 
 export type PublicJournalEntry = {
@@ -21,6 +23,8 @@ export type PublicJournalEntry = {
   emotion: string | null;
   confidence: number | null;
   emotionMessage: string | null;
+  contextInsight: string | null;
+  contextInsightUpdatedAt: string | null;
 };
 
 export function serializePublicJournalEntry(doc: JournalLike): PublicJournalEntry {
@@ -35,5 +39,9 @@ export function serializePublicJournalEntry(doc: JournalLike): PublicJournalEntr
         ? doc.confidence
         : null,
     emotionMessage: doc.emotionMessage ?? null,
+    contextInsight: doc.contextInsight ?? null,
+    contextInsightUpdatedAt: doc.contextInsightUpdatedAt
+      ? toIso(doc.contextInsightUpdatedAt)
+      : null,
   };
 }
