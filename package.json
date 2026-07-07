@@ -10,13 +10,23 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@dicebear/collection": "^9.4.2",
+    "@dicebear/core": "^9.4.3",
+    "@mediapipe/camera_utils": "^0.3.1675466862",
+    "@mediapipe/face_mesh": "^0.4.1633559619",
+    "axios": "^1.18.1",
     "bcryptjs": "^3.0.3",
+    "clsx": "^2.1.1",
+    "framer-motion": "^12.42.2",
     "jose": "^6.2.2",
     "jsonwebtoken": "^9.0.3",
+    "lucide-react": "^1.23.0",
     "mongoose": "^9.3.3",
     "next": "15.1.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
+    "recharts": "^3.9.2",
+    "tailwind-merge": "^3.6.0",
     "zod": "^4.3.6"
   },
   "devDependencies": {

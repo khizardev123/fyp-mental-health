@@ -1,0 +1,418 @@
+"use client";
+import { useState } from 'react';
+import { BarChart2, TrendingUp, PieChart, Cpu, Activity, Smile, Camera, Bot } from 'lucide-react';
+import { motion, AnimatePresence } from 'framer-motion';
+import {
+    LineChart, Line, BarChart, Bar, RadarChart, Radar,
+    PolarGrid, PolarAngleAxis, PolarRadiusAxis,
+    XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
+} from 'recharts';
+
+// ─── Types ────────────────────────────────────────────────────────────────────
+interface AnalyticsEntry {
+    label: string;
+    crisis_prob: number;
+    emotion: string;
+    confidence: number;
+    mental_state: string;
+    severity: number;
+    tags: string[];
+    text_emotion?: string;
+    face_emotion?: string | null;
+    final_avatar_emotion?: string;
+    is_stress?: boolean;
+}
+
+interface Props {
+    entries?: AnalyticsEntry[];
+    totalEntries?: number;
+}
+
+// ─── Colour maps ──────────────────────────────────────────────────────────────
+const MENTAL_COLORS: Record<string, string> = {
+    normal: '#22c55e', stable: '#22c55e',
+    anxiety: '#a78bfa', depression: '#60a5fa',
+    stress: '#fb923c', grief: '#f87171',
+    anger: '#facc15', fear: '#8b5cf6',
+    crisis: '#ef4444', joy: '#34d399',
+};
+
+// ─── Tab config ───────────────────────────────────────────────────────────────
+const TABS = [
+    { id: 'trends', label: 'Trends', Icon: TrendingUp },
+    { id: 'insights', label: 'Insights', Icon: BarChart2 },
+    { id: 'avatar', label: 'Avatar', Icon: Bot },
+    { id: 'dist', label: 'Distribution', Icon: PieChart },
+    { id: 'training', label: 'Training Metrics', Icon: Cpu },
+];
+
+// ─── Unified Model training metrics (v2.0.0 actual results) ─────────────────
+const TRAINING_RADAR = [
+    { metric: 'Accuracy', A: 74 },
+    { metric: 'Macro F1', A: 78 },
+    { metric: 'Crisis Rec', A: 65 },
+    { metric: 'Depr F1', A: 85 },
+    { metric: 'Stress F1', A: 100 },
+];
+const MODEL_INFO = [
+    {
+        name: 'Unified Mental Health Model v2.0',
+        algo: 'TF-IDF (word 1-3gram + char 3-5gram) + CalibratedLinearSVC',
+        accuracy: '73.8%',
+        size: '12.64 MB',
+        latency: '~15 ms',
+    },
+];
+
+// ─── Custom tooltip ───────────────────────────────────────────────────────────
+const Tip = ({ active, payload, label }: any) => {
+    if (!active || !payload?.length) return null;
+    return (
+        <div className="bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-xs shadow-xl">
+            <p className="text-slate-400 mb-1">{label}</p>
+            {payload.map((p: any) => (
+                <p key={p.name} style={{ color: p.color }}>
+                    {p.name}: {typeof p.value === 'number' ? p.value.toFixed(3) : p.value}
+                </p>
+            ))}
+        </div>
+    );
+};
+
+// ─── Empty state ──────────────────────────────────────────────────────────────
+function EmptyState({ label }: { label: string }) {
+    return (
+        <div className="flex flex-col items-center justify-center py-10 text-center">
+            <Activity className="w-8 h-8 text-slate-600 mb-2" />
+            <p className="text-slate-500 text-xs">No data yet</p>
+            <p className="text-slate-600 text-[10px] mt-1">Submit a journal entry to see {label}</p>
+        </div>
+    );
+}
+
+// ─── Main component ───────────────────────────────────────────────────────────
+export default function AnalyticsPanel({ entries = [], totalEntries }: Props) {
+    const [activeTab, setActiveTab] = useState('trends');
+
+    const hasData = entries.length > 0;
+
+    // ── Trend data
+    const trendData = entries.map(e => ({
+        name: e.label,
+        'Crisis Prob': +e.crisis_prob.toFixed(3),
+        'Confidence': +e.confidence.toFixed(3),
+        'Severity': +(e.severity / 10).toFixed(2),
+    }));
+
+    // ── Emotion frequency
+    const emotionFreq: Record<string, number> = {};
+    entries.forEach(e => { emotionFreq[e.emotion] = (emotionFreq[e.emotion] || 0) + 1; });
+    const emotionBarData = Object.entries(emotionFreq)
+        .sort((a, b) => b[1] - a[1])
+        .map(([name, count]) => ({ name, count }));
+
+    // ── Mental state frequency
+    const mentalFreq: Record<string, number> = {};
+    entries.forEach(e => {
+        const key = e.mental_state.toLowerCase();
+        mentalFreq[key] = (mentalFreq[key] || 0) + 1;
+    });
+    const mentalBarData = Object.entries(mentalFreq).map(([name, value]) => ({ name, value }));
+
+    // ── Stats
+    const avgCrisis = hasData
+        ? (entries.reduce((a, b) => a + b.crisis_prob, 0) / entries.length * 100).toFixed(1) + '%'
+        : '—';
+    const avgConf = hasData
+        ? (entries.reduce((a, b) => a + b.confidence, 0) / entries.length * 100).toFixed(1) + '%'
+        : '—';
+    const avgSeverity = hasData
+        ? (entries.reduce((a, b) => a + (b.severity || 0), 0) / entries.length).toFixed(1)
+        : '—';
+    const topEmotion = hasData
+        ? Object.entries(emotionFreq).sort((a, b) => b[1] - a[1])[0]?.[0] || '—'
+        : '—';
+    const allTags: Record<string, number> = {};
+    entries.forEach(e => (e.tags || []).forEach(t => { allTags[t] = (allTags[t] || 0) + 1; }));
+    const topTags = Object.entries(allTags).sort((a, b) => b[1] - a[1]).slice(0, 8);
+
+    // ── Avatar emotion analytics
+    const latest = entries[entries.length - 1];
+    const avatarEmotionFreq: Record<string, number> = {};
+    const textEmotionFreq: Record<string, number> = {};
+    const faceEmotionFreq: Record<string, number> = {};
+    let stressCount = 0;
+    entries.forEach(e => {
+        const final = e.final_avatar_emotion || e.emotion;
+        avatarEmotionFreq[final] = (avatarEmotionFreq[final] || 0) + 1;
+        const text = e.text_emotion || e.emotion;
+        textEmotionFreq[text] = (textEmotionFreq[text] || 0) + 1;
+        if (e.face_emotion) {
+            faceEmotionFreq[e.face_emotion] = (faceEmotionFreq[e.face_emotion] || 0) + 1;
+        }
+        if (e.is_stress) stressCount++;
+    });
+    const weeklyDominant = Object.entries(avatarEmotionFreq)
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 5)
+        .map(([name, count]) => ({ name, count }));
+    const stressPct = hasData ? Math.round((stressCount / entries.length) * 100) : 0;
+
+    return (
+        <div className="flex flex-col h-full bg-[var(--bg-secondary)] rounded-2xl border border-slate-700/50 overflow-hidden">
+            {/* Header */}
+            <div className="px-4 py-3 border-b border-slate-700/50 flex items-center gap-2">
+                <BarChart2 className="w-4 h-4 text-emerald-400" />
+                <h2 className="text-sm font-bold text-white">Life Analytics</h2>
+                {hasData && (
+                    <span className="ml-auto text-[10px] text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 rounded-full px-2 py-0.5">
+                        LIVE
+                    </span>
+                )}
+            </div>
+
+            {/* Tabs */}
+            <div className="flex border-b border-slate-700/50 px-2">
+                {TABS.map(tab => (
+                    <button
+                        key={tab.id}
+                        onClick={() => setActiveTab(tab.id)}
+                        className={`px-2.5 py-2 text-[11px] font-medium transition-all border-b-2 ${activeTab === tab.id
+                            ? 'border-rose-500 text-rose-400'
+                            : 'border-transparent text-slate-400 hover:text-slate-200'
+                            }`}
+                    >
+                        {tab.label}
+                    </button>
+                ))}
+            </div>
+
+            {/* Content */}
+            <div className="flex-1 overflow-y-auto p-3" style={{ scrollbarWidth: 'thin', scrollbarColor: '#4f46e5 transparent' }}>
+                <AnimatePresence mode="wait">
+
+                    {/* ── TRENDS ─────────────────────────────────────── */}
+                    {activeTab === 'trends' && (
+                        <motion.div key="trends" initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} className="space-y-4">
+                            <p className="text-[11px] text-slate-400 font-medium">Distress Level (Crisis Prob + Severity)</p>
+                            {hasData ? (
+                                <ResponsiveContainer width="100%" height={150}>
+                                    <LineChart data={trendData}>
+                                        <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
+                                        <XAxis dataKey="name" tick={{ fontSize: 9, fill: '#64748b' }} />
+                                        <YAxis tick={{ fontSize: 9, fill: '#64748b' }} domain={[0, 1]} tickCount={5} />
+                                        <Tooltip content={<Tip />} />
+                                        <Line type="monotone" dataKey="Crisis Prob" stroke="#f87171" strokeWidth={2} dot={{ r: 3, fill: '#f87171' }} />
+                                        <Line type="monotone" dataKey="Severity" stroke="#fb923c" strokeWidth={1.5} strokeDasharray="4 2" dot={{ r: 2, fill: '#fb923c' }} />
+                                    </LineChart>
+                                </ResponsiveContainer>
+                            ) : <EmptyState label="crisis trends" />}
+
+                            <p className="text-[11px] text-slate-400 font-medium">Model Confidence Over Time</p>
+                            {hasData ? (
+                                <ResponsiveContainer width="100%" height={130}>
+                                    <LineChart data={trendData}>
+                                        <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
+                                        <XAxis dataKey="name" tick={{ fontSize: 9, fill: '#64748b' }} />
+                                        <YAxis tick={{ fontSize: 9, fill: '#64748b' }} domain={[0, 1]} tickCount={5} />
+                                        <Tooltip content={<Tip />} />
+                                        <Line type="monotone" dataKey="Confidence" stroke="#60a5fa" strokeWidth={2} dot={{ r: 3, fill: '#60a5fa' }} />
+                                    </LineChart>
+                                </ResponsiveContainer>
+                            ) : <EmptyState label="confidence trends" />}
+                        </motion.div>
+                    )}
+
+                    {/* ── INSIGHTS ───────────────────────────────────── */}
+                    {activeTab === 'insights' && (
+                        <motion.div key="insights" initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} className="space-y-4">
+                            <p className="text-[11px] text-slate-400 font-medium">Most Frequent Emotions</p>
+                            {hasData ? (
+                                <ResponsiveContainer width="100%" height={160}>
+                                    <BarChart data={emotionBarData} layout="vertical">
+                                        <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" horizontal={false} />
+                                        <XAxis type="number" tick={{ fontSize: 9, fill: '#64748b' }} />
+                                        <YAxis dataKey="name" type="category" tick={{ fontSize: 9, fill: '#94a3b8' }} width={50} />
+                                        <Tooltip content={<Tip />} />
+                                        <Bar dataKey="count" fill="#6366f1" radius={[0, 4, 4, 0]} />
+                                    </BarChart>
+                                </ResponsiveContainer>
+                            ) : <EmptyState label="emotion data" />}
+
+                            <div className="grid grid-cols-2 gap-2">
+                                {[
+                                    { label: 'Avg Crisis', value: avgCrisis },
+                                    { label: 'Avg Confidence', value: avgConf },
+                                    { label: 'Avg Severity', value: avgSeverity === '—' ? '—' : `${avgSeverity}/10` },
+                                    { label: 'Top Emotion', value: topEmotion },
+                                    { label: 'Session Entries', value: String(entries.length) },
+                                ].map(s => (
+                                    <div key={s.label} className="bg-slate-800/50 rounded-lg p-2 border border-slate-700/50">
+                                        <div className="text-slate-400 text-[10px]">{s.label}</div>
+                                        <div className="text-white font-bold text-sm capitalize">{s.value}</div>
+                                    </div>
+                                ))}
+                            </div>
+                            {topTags.length > 0 && (
+                                <div>
+                                    <p className="text-[11px] text-slate-400 font-medium mb-2">Recurring Semantic Tags</p>
+                                    <div className="flex flex-wrap gap-1.5">
+                                        {topTags.map(([tag, count]) => (
+                                            <span key={tag} className="text-[10px] px-2 py-0.5 bg-teal-500/10 border border-teal-500/20 text-teal-300 rounded-full capitalize">
+                                                {tag} <span className="text-teal-500">×{count}</span>
+                                            </span>
+                                        ))}
+                                    </div>
+                                </div>
+                            )}
+                        </motion.div>
+                    )}
+
+                    {/* ── AVATAR INTELLIGENCE ─────────────────────────── */}
+                    {activeTab === 'avatar' && (
+                        <motion.div key="avatar" initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} className="space-y-4">
+                            <p className="text-[11px] text-slate-400 font-medium">Current Avatar State</p>
+                            {hasData && latest ? (
+                                <div className="grid grid-cols-1 gap-2">
+                                    {[
+                                        { label: 'Text Emotion', value: latest.text_emotion || latest.emotion, Icon: Smile, border: 'border-indigo-500/20', iconColor: 'text-indigo-400' },
+                                        { label: 'Face Emotion', value: latest.face_emotion || '—', Icon: Camera, border: 'border-purple-500/20', iconColor: 'text-purple-400' },
+                                        { label: 'Final Avatar', value: latest.final_avatar_emotion || latest.emotion, Icon: Bot, border: 'border-emerald-500/20', iconColor: 'text-emerald-400' },
+                                    ].map(row => (
+                                        <div key={row.label} className={`flex items-center justify-between bg-slate-800/50 rounded-lg p-2.5 border ${row.border}`}>
+                                            <span className="flex items-center gap-2 text-[11px] text-slate-400">
+                                                <row.Icon className={`w-3.5 h-3.5 ${row.iconColor}`} />
+                                                {row.label}
+                                            </span>
+                                            <span className="text-sm font-semibold text-white capitalize">{row.value}</span>
+                                        </div>
+                                    ))}
+                                </div>
+                            ) : <EmptyState label="avatar emotions" />}
+
+                            <p className="text-[11px] text-slate-400 font-medium">Session Dominant Emotions</p>
+                            {weeklyDominant.length > 0 ? (
+                                <ResponsiveContainer width="100%" height={140}>
+                                    <BarChart data={weeklyDominant} layout="vertical">
+                                        <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" horizontal={false} />
+                                        <XAxis type="number" tick={{ fontSize: 9, fill: '#64748b' }} />
+                                        <YAxis dataKey="name" type="category" tick={{ fontSize: 9, fill: '#94a3b8' }} width={55} />
+                                        <Tooltip content={<Tip />} />
+                                        <Bar dataKey="count" fill="#10b981" radius={[0, 4, 4, 0]} />
+                                    </BarChart>
+                                </ResponsiveContainer>
+                            ) : <EmptyState label="dominant emotions" />}
+
+                            <div className="grid grid-cols-2 gap-2">
+                                <div className="bg-slate-800/50 rounded-lg p-2 border border-orange-500/20">
+                                    <div className="text-slate-400 text-[10px]">Stress Frequency</div>
+                                    <div className="text-white font-bold text-sm">{stressPct}%</div>
+                                    <div className="text-[9px] text-slate-500">{stressCount}/{entries.length || 0} entries</div>
+                                </div>
+                                <div className="bg-slate-800/50 rounded-lg p-2 border border-purple-500/20">
+                                    <div className="text-slate-400 text-[10px]">Face Samples</div>
+                                    <div className="text-white font-bold text-sm">{Object.values(faceEmotionFreq).reduce((a, b) => a + b, 0)}</div>
+                                    <div className="text-[9px] text-slate-500">webcam enabled entries</div>
+                                </div>
+                            </div>
+
+                            {Object.keys(textEmotionFreq).length > 0 && (
+                                <div>
+                                    <p className="text-[11px] text-slate-400 font-medium mb-2">Text vs Face Breakdown</p>
+                                    <div className="space-y-1">
+                                        {Object.entries(textEmotionFreq).sort((a, b) => b[1] - a[1]).slice(0, 4).map(([name, count]) => (
+                                            <div key={name} className="flex items-center justify-between text-xs px-2 py-1 rounded bg-slate-800/40">
+                                                <span className="capitalize text-indigo-300">{name}</span>
+                                                <span className="text-slate-400">text ×{count}</span>
+                                            </div>
+                                        ))}
+                                    </div>
+                                </div>
+                            )}
+                        </motion.div>
+                    )}
+
+                    {/* ── DISTRIBUTION ───────────────────────────────── */}
+                    {activeTab === 'dist' && (
+                        <motion.div key="dist" initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} className="space-y-4">
+                            <p className="text-[11px] text-slate-400 font-medium">Mental Health State Distribution</p>
+                            {hasData ? (
+                                <>
+                                    <ResponsiveContainer width="100%" height={160}>
+                                        <BarChart data={mentalBarData}>
+                                            <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
+                                            <XAxis dataKey="name" tick={{ fontSize: 8, fill: '#64748b' }} />
+                                            <YAxis tick={{ fontSize: 9, fill: '#64748b' }} />
+                                            <Tooltip content={<Tip />} />
+                                            <Bar dataKey="value" fill="#6366f1" radius={[4, 4, 0, 0]}>
+                                                {mentalBarData.map((entry, idx) => (
+                                                    <rect key={idx} fill={MENTAL_COLORS[entry.name] || '#6366f1'} />
+                                                ))}
+                                            </Bar>
+                                        </BarChart>
+                                    </ResponsiveContainer>
+                                    <div className="space-y-1">
+                                        {mentalBarData.map(entry => (
+                                            <div key={entry.name} className="flex items-center justify-between text-xs px-2 py-1 rounded bg-slate-800/40">
+                                                <span className="flex items-center gap-2">
+                                                    <span className="w-2 h-2 rounded-full" style={{ background: MENTAL_COLORS[entry.name] || '#6366f1' }} />
+                                                    <span className="capitalize text-slate-300">{entry.name}</span>
+                                                </span>
+                                                <span className="text-slate-400">{entry.value} {entry.value === 1 ? 'entry' : 'entries'}</span>
+                                            </div>
+                                        ))}
+                                    </div>
+                                </>
+                            ) : <EmptyState label="mental health distribution" />}
+                        </motion.div>
+                    )}
+
+                    {/* ── TRAINING METRICS ───────────────────────────── */}
+                    {activeTab === 'training' && (
+                        <motion.div key="training" initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} className="space-y-4">
+                            <p className="text-[11px] text-slate-400 font-medium">Model Performance Radar</p>
+                            <ResponsiveContainer width="100%" height={180}>
+                                <RadarChart data={TRAINING_RADAR}>
+                                    <PolarGrid stroke="#1e293b" />
+                                    <PolarAngleAxis dataKey="metric" tick={{ fontSize: 8, fill: '#94a3b8' }} />
+                                    <PolarRadiusAxis angle={90} domain={[0, 100]} tick={{ fontSize: 7, fill: '#475569' }} />
+                                    <Radar name="%" dataKey="A" stroke="#6366f1" fill="#6366f1" fillOpacity={0.35} />
+                                </RadarChart>
+                            </ResponsiveContainer>
+                            <div className="space-y-2">
+                                {MODEL_INFO.map(m => (
+                                    <div key={m.name} className="bg-slate-800/50 rounded-lg p-2 border border-slate-700/50">
+                                        <div className="text-white text-xs font-semibold mb-1">{m.name}</div>
+                                        <div className="grid grid-cols-2 gap-x-3 text-[10px] text-slate-400">
+                                            <span className="col-span-2 text-slate-500 mb-1">{m.algo}</span>
+                                            <span>Accuracy: <span className="text-emerald-400 font-bold">{m.accuracy}</span></span>
+                                            <span>Size: <span className="text-slate-300">{m.size}</span></span>
+                                            <span>Latency: <span className="text-indigo-400">{m.latency}</span></span>
+                                            <span>Classes: <span className="text-purple-400">9</span></span>
+                                        </div>
+                                        <div className="mt-2 flex flex-wrap gap-1">
+                                            {['depression 85%', 'stress 100%', 'grief 100%', 'joy 84%', 'crisis bridge ✅'].map(t => (
+                                                <span key={t} className="text-[9px] px-1.5 py-0.5 bg-slate-700/60 rounded text-slate-400">{t}</span>
+                                            ))}
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        </motion.div>
+                    )}
+
+                </AnimatePresence>
+            </div>
+
+            {/* Footer */}
+            <div className="px-4 py-2 border-t border-slate-700/50 flex justify-between items-center">
+                <span className="text-[10px] text-slate-500">
+                    {hasData ? `${entries.length} real-time entr${entries.length === 1 ? 'y' : 'ies'}` : 'No entries yet'}
+                </span>
+                {hasData && (
+                    <span className="text-[10px] text-emerald-400">● Live</span>
+                )}
+            </div>
+        </div>
+    );
+}
