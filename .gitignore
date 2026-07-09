@@ -12,6 +12,12 @@ __pycache__/
 # Environment & IDE
 .env
 .env.local
+.env.*.local
+**/.env
+!**/.env.example
+services/avatar-service/.env
+services/avatar-service/data/
+data/
 .vscode/
 .idea/
 .DS_Store

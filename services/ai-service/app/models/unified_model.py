@@ -17,6 +17,8 @@ import re
 import numpy as np
 from typing import Dict, List
 
+from app.models.emotion_context_rules import apply_emotion_context_rules
+
 logger = logging.getLogger(__name__)
 
 # ─── Severity Weights per Class ──────────────────────────────────────────────
@@ -28,6 +30,7 @@ SEVERITY_WEIGHTS = {
     "anger":       6,
     "fear":        6,
     "stress":      5,
+    "sadness":     4,
     "normal":      1,
     "joy":         0,
 }
@@ -38,6 +41,7 @@ CLASS_TAGS = {
     "depression": ["low mood", "anhedonia", "hopelessness", "fatigue", "worthlessness"],
     "anxiety":    ["worry", "panic", "nervousness", "avoidance", "hypervigilance"],
     "stress":     ["overwhelm", "burnout", "pressure", "overload", "exhaustion"],
+    "sadness":    ["low mood", "disappointment", "sadness"],
     "grief":      ["loss", "mourning", "bereavement", "sadness", "emptiness"],
     "anger":      ["frustration", "irritability", "rage", "resentment"],
     "fear":       ["dread", "terror", "phobia", "avoidance"],
@@ -49,13 +53,14 @@ CLASS_TAGS = {
 STATE_TO_EMOTION = {
     "crisis":     "sadness",
     "depression": "sadness",
-    "anxiety":    "fear",
+    "anxiety":    "anxiety",
     "grief":      "sadness",
     "anger":      "anger",
     "fear":       "fear",
-    "stress":     "fear",
+    "stress":     "stress",
     "joy":        "joy",
     "normal":     "neutral",
+    "sadness":    "sadness",
 }
 
 # ─── Display names ────────────────────────────────────────────────────────────
@@ -69,6 +74,7 @@ DISPLAY_NAMES = {
     "stress":     "Stress",
     "joy":        "Joy",
     "normal":     "Stable",
+    "sadness":    "Sadness",
 }
 
 # ─── Crisis keyword override ──────────────────────────────────────────────────
@@ -182,6 +188,10 @@ def _get_contextual_tags(label: str, text: str, all_scores: dict) -> List[str]:
         tags.append("sleep disturbance")
     if any(k in text_lower for k in ["work", "job", "career", "boss"]):
         tags.append("work-related stress")
+    if any(k in text_lower for k in ["exam", "exams", "test", "midterm", "finals", "studying", "assignment"]):
+        tags.append("academic pressure")
+    if any(k in text_lower for k in ["fail", "failed", "flunk", "bad grade"]):
+        tags.append("disappointment")
     if any(k in text_lower for k in ["relationship", "partner", "breakup", "divorce"]):
         tags.append("relationship difficulty")
     if any(k in text_lower for k in ["family", "parent", "mother", "father"]):
@@ -198,11 +208,23 @@ def _get_contextual_tags(label: str, text: str, all_scores: dict) -> List[str]:
 
 
 def _semantic_summary(label: str, emotion: str, severity: int, confidence: float, text: str) -> str:
+    text_lower = text.lower()
+    if label in ("stress", "anxiety") and any(k in text_lower for k in ["exam", "exams", "test", "midterm", "finals", "studying", "assignment", "semester"]):
+        return (
+            f"Exam-related stress detected (severity {severity}/10). "
+            "Academic pressure is present — practical coping and pacing may help."
+        )
+    if label == "stress" and any(k in text_lower for k in ["fail", "failed", "flunk", "bad grade"]):
+        return (
+            f"Academic disappointment or setback (severity {severity}/10). "
+            "This reads as situational stress rather than clinical depression."
+        )
     summaries = {
         "crisis":     f"Text expresses severe psychological distress with crisis indicators (severity {severity}/10). Immediate support is strongly recommended.",
         "depression": f"Text reflects depressive patterns including low mood and reduced engagement (severity {severity}/10). Professional support may be beneficial.",
         "anxiety":    f"Text shows signs of anxiety, worry or panic (severity {severity}/10). Grounding and support strategies are advisable.",
-        "stress":     f"Text indicates high stress or overwhelm (severity {severity}/10). Rest and stress management are recommended.",
+        "stress":     f"Situational stress or overwhelm (severity {severity}/10). Rest and stress management are recommended.",
+        "sadness":    f"Low mood or sadness (severity {severity}/10). Supportive listening is appropriate.",
         "grief":      f"Text reflects grief or significant loss (severity {severity}/10). Compassionate support is appropriate.",
         "anger":      f"Text expresses anger or frustration (severity {severity}/10). De-escalation support may help.",
         "fear":       f"Text reflects fear or dread (severity {severity}/10). Reassurance and safety techniques are helpful.",
@@ -352,6 +374,17 @@ class UnifiedMentalHealthAnalyzer:
                     confidence = all_scores[best_alt]
                 all_scores["crisis"] = max(all_scores.get("crisis", 0.0), 0.20)
 
+            # ─ Contextual emotion refinement (negation, exam stress, etc.) ─
+            top_label, all_scores, confidence, rule_meta = apply_emotion_context_rules(
+                text, top_label, all_scores, confidence
+            )
+            if rule_meta.get("rules_applied"):
+                logger.info(
+                    "[ML] Emotion context rules applied: %s → label=%s",
+                    rule_meta["rules_applied"],
+                    top_label,
+                )
+
             # ─ Crisis probability ─────────────────────────────────────────────
             crisis_prob = all_scores.get("crisis", 0.0)
             if explicit_crisis:
@@ -375,6 +408,8 @@ class UnifiedMentalHealthAnalyzer:
             severity = _compute_severity(top_label, crisis_prob, all_scores,
                                          implicit_crisis=implicit_crisis,
                                          distress=distress_signal)
+            if rule_meta.get("severity_cap"):
+                severity = min(severity, rule_meta["severity_cap"])
             emotion  = STATE_TO_EMOTION.get(top_label, "neutral")
             tags     = _get_contextual_tags(top_label, text, all_scores)
             summary  = _semantic_summary(top_label, emotion, severity, confidence, text)

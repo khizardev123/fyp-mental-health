@@ -1,5 +1,6 @@
 "use client";
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import SafetyPanel from '@/components/SafetyPanel';
 import JournalArea from '@/components/JournalArea';
 import AnalyticsPanel from '@/components/AnalyticsPanel';
@@ -12,15 +13,34 @@ interface AnalyticsEntry {
     mental_state: string;
     severity: number;
     tags: string[];
+    text_emotion?: string;
+    face_emotion?: string | null;
+    final_avatar_emotion?: string;
+    is_stress?: boolean;
 }
 
 export default function Dashboard() {
+    const router = useRouter();
+    const [authChecked, setAuthChecked] = useState(false);
     const [analyticsEntries, setAnalyticsEntries] = useState<AnalyticsEntry[]>([]);
     const [totalEntries, setTotalEntries] = useState(0);
+
+    useEffect(() => {
+        const token = localStorage.getItem('token');
+        if (!token) {
+            router.replace('/');
+            return;
+        }
+        setAuthChecked(true);
+    }, [router]);
 
     const handleNewEntry = (entry: {
         emotion: string; confidence: number; crisis_prob: number;
         mental_state: string; severity: number; tags: string[];
+        text_emotion?: string;
+        face_emotion?: string | null;
+        final_avatar_emotion?: string;
+        is_stress?: boolean;
     }) => {
         setTotalEntries(prev => {
             const next = prev + 1;
@@ -31,6 +51,10 @@ export default function Dashboard() {
             return next;
         });
     };
+
+    if (!authChecked) {
+        return null;
+    }
 
     return (
         <main className="min-h-screen bg-[var(--bg-primary)] p-4 md:p-6 lg:p-8 h-screen overflow-hidden flex flex-col">

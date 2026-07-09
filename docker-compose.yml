@@ -1,0 +1,66 @@
+services:
+  ai-service:
+    build:
+      context: ./services/ai-service
+      dockerfile: Dockerfile
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./ml/models:/models:ro
+    environment:
+      UNIFIED_MODEL_PATH: /models/unified_mental_health.joblib
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health/ready')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    restart: unless-stopped
+
+  backend:
+    build:
+      context: ./services/avatar-service
+      dockerfile: Dockerfile
+    ports:
+      - "8001:8001"
+    volumes:
+      - serenemind-data:/data
+    environment:
+      DATABASE_URL: sqlite:////data/serenemind.db
+      AI_SERVICE_URL: http://ai-service:8000
+      AUTH_DISABLED: ${AUTH_DISABLED:-false}
+      JWT_SECRET: ${JWT_SECRET:-change-me-in-production}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_MODEL: ${OPENAI_MODEL:-gpt-4o-mini}
+      PINECONE_API_KEY: ${PINECONE_API_KEY:-}
+      PINECONE_INDEX_NAME: ${PINECONE_INDEX_NAME:-serenemind-memories}
+      PINECONE_ENABLED: ${PINECONE_ENABLED:-false}
+      PINECONE_CLOUD: ${PINECONE_CLOUD:-aws}
+      PINECONE_REGION: ${PINECONE_REGION:-us-east-1}
+    depends_on:
+      ai-service:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8001/health/ready')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    ports:
+      - "3000:3000"
+    environment:
+      AI_SERVICE_URL: http://ai-service:8000
+      AVATAR_SERVICE_URL: http://backend:8001
+    depends_on:
+      backend:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  serenemind-data:

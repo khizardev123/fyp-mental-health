@@ -1,6 +1,6 @@
 "use client";
 import { useState } from 'react';
-import { BarChart2, TrendingUp, PieChart, Cpu, Activity } from 'lucide-react';
+import { BarChart2, TrendingUp, PieChart, Cpu, Activity, Smile, Camera, Bot } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
     LineChart, Line, BarChart, Bar, RadarChart, Radar,
@@ -17,6 +17,10 @@ interface AnalyticsEntry {
     mental_state: string;
     severity: number;
     tags: string[];
+    text_emotion?: string;
+    face_emotion?: string | null;
+    final_avatar_emotion?: string;
+    is_stress?: boolean;
 }
 
 interface Props {
@@ -37,6 +41,7 @@ const MENTAL_COLORS: Record<string, string> = {
 const TABS = [
     { id: 'trends', label: 'Trends', Icon: TrendingUp },
     { id: 'insights', label: 'Insights', Icon: BarChart2 },
+    { id: 'avatar', label: 'Avatar', Icon: Bot },
     { id: 'dist', label: 'Distribution', Icon: PieChart },
     { id: 'training', label: 'Training Metrics', Icon: Cpu },
 ];
@@ -130,6 +135,28 @@ export default function AnalyticsPanel({ entries = [], totalEntries }: Props) {
     const allTags: Record<string, number> = {};
     entries.forEach(e => (e.tags || []).forEach(t => { allTags[t] = (allTags[t] || 0) + 1; }));
     const topTags = Object.entries(allTags).sort((a, b) => b[1] - a[1]).slice(0, 8);
+
+    // ── Avatar emotion analytics
+    const latest = entries[entries.length - 1];
+    const avatarEmotionFreq: Record<string, number> = {};
+    const textEmotionFreq: Record<string, number> = {};
+    const faceEmotionFreq: Record<string, number> = {};
+    let stressCount = 0;
+    entries.forEach(e => {
+        const final = e.final_avatar_emotion || e.emotion;
+        avatarEmotionFreq[final] = (avatarEmotionFreq[final] || 0) + 1;
+        const text = e.text_emotion || e.emotion;
+        textEmotionFreq[text] = (textEmotionFreq[text] || 0) + 1;
+        if (e.face_emotion) {
+            faceEmotionFreq[e.face_emotion] = (faceEmotionFreq[e.face_emotion] || 0) + 1;
+        }
+        if (e.is_stress) stressCount++;
+    });
+    const weeklyDominant = Object.entries(avatarEmotionFreq)
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 5)
+        .map(([name, count]) => ({ name, count }));
+    const stressPct = hasData ? Math.round((stressCount / entries.length) * 100) : 0;
 
     return (
         <div className="flex flex-col h-full bg-[var(--bg-secondary)] rounded-2xl border border-slate-700/50 overflow-hidden">
@@ -234,6 +261,70 @@ export default function AnalyticsPanel({ entries = [], totalEntries }: Props) {
                                             <span key={tag} className="text-[10px] px-2 py-0.5 bg-teal-500/10 border border-teal-500/20 text-teal-300 rounded-full capitalize">
                                                 {tag} <span className="text-teal-500">×{count}</span>
                                             </span>
+                                        ))}
+                                    </div>
+                                </div>
+                            )}
+                        </motion.div>
+                    )}
+
+                    {/* ── AVATAR INTELLIGENCE ─────────────────────────── */}
+                    {activeTab === 'avatar' && (
+                        <motion.div key="avatar" initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} className="space-y-4">
+                            <p className="text-[11px] text-slate-400 font-medium">Current Avatar State</p>
+                            {hasData && latest ? (
+                                <div className="grid grid-cols-1 gap-2">
+                                    {[
+                                        { label: 'Text Emotion', value: latest.text_emotion || latest.emotion, Icon: Smile, border: 'border-indigo-500/20', iconColor: 'text-indigo-400' },
+                                        { label: 'Face Emotion', value: latest.face_emotion || '—', Icon: Camera, border: 'border-purple-500/20', iconColor: 'text-purple-400' },
+                                        { label: 'Final Avatar', value: latest.final_avatar_emotion || latest.emotion, Icon: Bot, border: 'border-emerald-500/20', iconColor: 'text-emerald-400' },
+                                    ].map(row => (
+                                        <div key={row.label} className={`flex items-center justify-between bg-slate-800/50 rounded-lg p-2.5 border ${row.border}`}>
+                                            <span className="flex items-center gap-2 text-[11px] text-slate-400">
+                                                <row.Icon className={`w-3.5 h-3.5 ${row.iconColor}`} />
+                                                {row.label}
+                                            </span>
+                                            <span className="text-sm font-semibold text-white capitalize">{row.value}</span>
+                                        </div>
+                                    ))}
+                                </div>
+                            ) : <EmptyState label="avatar emotions" />}
+
+                            <p className="text-[11px] text-slate-400 font-medium">Session Dominant Emotions</p>
+                            {weeklyDominant.length > 0 ? (
+                                <ResponsiveContainer width="100%" height={140}>
+                                    <BarChart data={weeklyDominant} layout="vertical">
+                                        <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" horizontal={false} />
+                                        <XAxis type="number" tick={{ fontSize: 9, fill: '#64748b' }} />
+                                        <YAxis dataKey="name" type="category" tick={{ fontSize: 9, fill: '#94a3b8' }} width={55} />
+                                        <Tooltip content={<Tip />} />
+                                        <Bar dataKey="count" fill="#10b981" radius={[0, 4, 4, 0]} />
+                                    </BarChart>
+                                </ResponsiveContainer>
+                            ) : <EmptyState label="dominant emotions" />}
+
+                            <div className="grid grid-cols-2 gap-2">
+                                <div className="bg-slate-800/50 rounded-lg p-2 border border-orange-500/20">
+                                    <div className="text-slate-400 text-[10px]">Stress Frequency</div>
+                                    <div className="text-white font-bold text-sm">{stressPct}%</div>
+                                    <div className="text-[9px] text-slate-500">{stressCount}/{entries.length || 0} entries</div>
+                                </div>
+                                <div className="bg-slate-800/50 rounded-lg p-2 border border-purple-500/20">
+                                    <div className="text-slate-400 text-[10px]">Face Samples</div>
+                                    <div className="text-white font-bold text-sm">{Object.values(faceEmotionFreq).reduce((a, b) => a + b, 0)}</div>
+                                    <div className="text-[9px] text-slate-500">webcam enabled entries</div>
+                                </div>
+                            </div>
+
+                            {Object.keys(textEmotionFreq).length > 0 && (
+                                <div>
+                                    <p className="text-[11px] text-slate-400 font-medium mb-2">Text vs Face Breakdown</p>
+                                    <div className="space-y-1">
+                                        {Object.entries(textEmotionFreq).sort((a, b) => b[1] - a[1]).slice(0, 4).map(([name, count]) => (
+                                            <div key={name} className="flex items-center justify-between text-xs px-2 py-1 rounded bg-slate-800/40">
+                                                <span className="capitalize text-indigo-300">{name}</span>
+                                                <span className="text-slate-400">text ×{count}</span>
+                                            </div>
                                         ))}
                                     </div>
                                 </div>

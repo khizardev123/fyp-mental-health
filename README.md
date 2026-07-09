@@ -255,7 +255,59 @@ graph TD
 
 - **Frontend**: Next.js 14 (Port 3000)
 - **AI Service**: FastAPI / Unified Model v4 (Port 8000)
-- **Avatar Service**: FastAPI / Response Generator (Port 8001)
+- **Avatar Service**: FastAPI / Chat + RAG + Avatar Intelligence (Port 8001)
+
+### Quick Start (Local)
+
+```powershell
+# 1. Install Ollama (https://ollama.com) and pull models
+ollama pull llama3
+ollama pull mistral
+
+# 2. AI Service
+cd services/ai-service
+python -m uvicorn main:app --host 127.0.0.1 --port 8000
+
+# 3. Avatar Service (copy .env.example → .env first)
+cd services/avatar-service
+python -m pip install -r requirements.txt
+python -m uvicorn main:app --host 127.0.0.1 --port 8001
+
+# 4. Frontend
+cd frontend
+npm run dev
+```
+
+Open `http://localhost:3000/dashboard`.
+
+### Architecture Flow (Phase 3)
+
+```
+User → Text → ML analysis → Pinecone RAG → Ollama → Response → Avatar → TTS
+```
+
+- **Embeddings**: Pinecone Inference (`multilingual-e5-large`) — unchanged
+- **Chat LLM**: Ollama (`llama3`, fallback `mistral`) — replaces OpenAI chat
+- **Avatar APIs**: `POST /avatar/speak`, `/lipsync`, `/analyze-face`, `/fuse-emotion`
+
+### Ollama Configuration (`.env`)
+
+```
+OLLAMA_BASE_URL=http://localhost:11434
+OLLAMA_MODEL=llama3
+OLLAMA_FALLBACK_MODEL=mistral
+OLLAMA_ENABLED=true
+```
+
+If Ollama is unavailable, template responses are used automatically.
+
+### Optional Webcam Emotion (DeepFace)
+
+```powershell
+pip install deepface opencv-python-headless tf-keras
+```
+
+Enable via the camera toggle in the chat UI. Captures a frame every 5 seconds.
 
 ---
 *Report Generated: 2026-02-22*

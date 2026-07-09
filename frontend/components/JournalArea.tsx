@@ -1,10 +1,17 @@
 "use client";
 import { useState, useRef, useEffect } from 'react';
-import { Send, Loader2, AlertTriangle, Brain, Heart, Zap, ChevronDown, Activity, Tag, Shield, Star } from 'lucide-react';
+import { Send, Loader2, AlertTriangle, Brain, Heart, Zap, ChevronDown, Activity, Tag, Shield, Star, Camera, Volume2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { ai, avatar } from '@/lib/api';
+import { chat } from '@/lib/api';
 import Avatar from './Avatar';
 import CrisisModal from './CrisisModal';
+import { normalizeAvatarEmotion, isStressEmotion } from '@/lib/emotionFusion';
+import { useAvatarSpeech } from '@/hooks/useAvatarSpeech';
+import { useMediaPipeFaceMesh } from '@/hooks/useMediaPipeFaceMesh';
+import { useStreamBuffer } from '@/hooks/useStreamBuffer';
+import { createPipelineTimer } from '@/lib/pipelineTiming';
+import FaceTrackingDebugOverlay from './FaceTrackingDebugOverlay';
+import { inferFaceEmotionFromSignals } from '@/lib/faceEmotionInference';
 
 // ─── Unified Model Analysis Types ───────────────────────────────────────────
 interface UnifiedAnalysis {
@@ -26,6 +33,14 @@ interface UnifiedAnalysis {
     // Meta
     processing_time_ms: number;
     model_version: string;
+    emotion_rules_applied?: string[];
+    ml_raw_label?: string;
+    assessment?: string;
+    text_emotion?: string;
+    face_emotion?: string | null;
+    face_confidence?: number;
+    fusion_active?: boolean;
+    fusion_note?: string | null;
 }
 
 interface Message {
@@ -38,6 +53,7 @@ interface Message {
 const EMOTION_EMOJI: Record<string, string> = {
     sadness: '😢', joy: '😊', anger: '😠',
     fear: '😨', neutral: '😐', love: '❤️', surprise: '😲',
+    stress: '😰', anxiety: '😟',
 };
 const STATE_EMOJI: Record<string, string> = {
     depression: '🌧️', anxiety: '⚡', stress: '🔥', grief: '🕊️',
@@ -220,6 +236,11 @@ function ModelAnalysisDropdown({ analysis }: { analysis: UnifiedAnalysis }) {
                             )}
 
                             {/* ── Semantic Summary ── */}
+                            {analysis.emotion_rules_applied && analysis.emotion_rules_applied.length > 0 && (
+                                <div className="text-[10px] text-purple-300/80">
+                                    Rules: {analysis.emotion_rules_applied.join(', ')}
+                                </div>
+                            )}
                             {analysis.semantic_summary && (
                                 <div className="bg-slate-800/40 rounded-lg p-2.5 border border-slate-700/30">
                                     <div className="text-slate-500 text-[10px] mb-1 font-medium">📋 AI Assessment</div>
@@ -242,19 +263,79 @@ export default function JournalArea({
     onNewEntry?: (entry: {
         emotion: string; confidence: number; crisis_prob: number;
         mental_state: string; severity: number; tags: string[];
+        text_emotion?: string;
+        face_emotion?: string | null;
+        final_avatar_emotion?: string;
+        is_stress?: boolean;
     }) => void;
 }) {
     const [content, setContent] = useState('');
     const [isAnalyzing, setIsAnalyzing] = useState(false);
     const [messages, setMessages] = useState<Message[]>([]);
-    const [currentEmotion, setCurrentEmotion] = useState('neutral');
+    const [textEmotion, setTextEmotion] = useState('neutral');
+    const [faceEmotion, setFaceEmotion] = useState<string | null>(null);
+    const [faceConfidence, setFaceConfidence] = useState(0);
+    const [finalAvatarEmotion, setFinalAvatarEmotion] = useState('neutral');
     const [currentRisk, setCurrentRisk] = useState('LOW');
     const [currentSeverity, setCurrentSeverity] = useState(0);
     const [showCrisis, setShowCrisis] = useState(false);
-    const [conversationHistory, setConversationHistory] = useState<any[]>([]);
+    const [sessionId, setSessionId] = useState<string | null>(null);
     const [error, setError] = useState<string | null>(null);
+    const [ttsEnabled, setTtsEnabled] = useState(true);
     const textareaRef = useRef<HTMLTextAreaElement>(null);
     const messagesEndRef = useRef<HTMLDivElement>(null);
+    const activeStreamRef = useRef(0);
+    const avatarMsgIndexRef = useRef(-1);
+
+    const { speakText, stopSpeech, resetSpeakDedup, isSpeaking, mouthOpen } = useAvatarSpeech();
+    const streamBuffer = useStreamBuffer();
+    const {
+        faceTracking,
+        trackingEnabled,
+        setTrackingEnabled,
+        initialized,
+        error: faceTrackingError,
+        videoRef,
+        landmarksRef,
+    } = useMediaPipeFaceMesh(false);
+
+    useEffect(() => {
+        setFinalAvatarEmotion(normalizeAvatarEmotion(textEmotion));
+    }, [textEmotion]);
+
+    const getUserId = () => {
+        if (typeof window === 'undefined') return 'demo-user';
+        try {
+            const user = JSON.parse(localStorage.getItem('user') || '{}');
+            return user.id || 'demo-user';
+        } catch {
+            return 'demo-user';
+        }
+    };
+
+    useEffect(() => {
+        const storedSession = localStorage.getItem('session_id');
+        if (!storedSession) return;
+
+        setSessionId(storedSession);
+        chat.getHistory(storedSession)
+            .then(res => {
+                const loaded = res.data.messages as Message[];
+                if (loaded.length > 0) {
+                    setMessages(loaded);
+                    const lastAnalysis = [...loaded].reverse().find(m => m.analysis)?.analysis;
+                    if (lastAnalysis) {
+                        setTextEmotion(lastAnalysis.emotion);
+                        setCurrentRisk(lastAnalysis.crisis_risk);
+                        setCurrentSeverity(lastAnalysis.severity_rating);
+                    }
+                }
+            })
+            .catch(() => {
+                // Session may have expired — start fresh
+                localStorage.removeItem('session_id');
+            });
+    }, []);
 
     useEffect(() => {
         const scrollToBottom = () => messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -267,135 +348,270 @@ export default function JournalArea({
         if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) handleSubmit();
     };
 
+    const applySideEffects = (data: Record<string, any>) => {
+        localStorage.setItem('session_id', data.session_id as string);
+        setSessionId(data.session_id as string);
+
+        const raw = (data.analysis || {}) as UnifiedAnalysis;
+        const emotionVal = typeof raw.emotion === 'string' ? raw.emotion : 'neutral';
+        const unified: UnifiedAnalysis = {
+            mental_state: raw.mental_state,
+            raw_label: raw.raw_label,
+            emotion: emotionVal,
+            crisis_risk: raw.crisis_risk || (data.crisis as string) || 'LOW',
+            crisis_probability: raw.crisis_probability ?? 0,
+            requires_immediate_action: raw.requires_immediate_action ?? false,
+            severity_rating: raw.severity_rating,
+            tags: raw.tags || [],
+            confidence: raw.confidence ?? 0,
+            all_scores: raw.all_scores || {},
+            semantic_summary: raw.semantic_summary || raw.assessment || '',
+            triggered_by: raw.triggered_by || 'model',
+            processing_time_ms: raw.processing_time_ms || 0,
+            model_version: raw.model_version || '4.0.0',
+            emotion_rules_applied: raw.emotion_rules_applied,
+            ml_raw_label: raw.ml_raw_label,
+            assessment: raw.assessment,
+            text_emotion: raw.text_emotion,
+            face_emotion: raw.face_emotion,
+            face_confidence: raw.face_confidence,
+            fusion_active: raw.fusion_active,
+            fusion_note: raw.fusion_note,
+        };
+
+        setTextEmotion(unified.emotion);
+        setFaceEmotion(unified.face_emotion ?? (data.face_emotion as string | null) ?? null);
+        setFaceConfidence(unified.face_confidence ?? (data.face_confidence as number) ?? 0);
+        setFinalAvatarEmotion(normalizeAvatarEmotion(unified.emotion));
+        setCurrentRisk(unified.crisis_risk);
+        setCurrentSeverity(unified.severity_rating);
+
+        if (data.show_crisis) setShowCrisis(true);
+
+        const textNorm = normalizeAvatarEmotion(unified.text_emotion || unified.emotion);
+        const faceNorm = unified.face_emotion ? normalizeAvatarEmotion(unified.face_emotion) : null;
+
+        onNewEntry?.({
+            emotion: unified.emotion,
+            confidence: unified.confidence,
+            crisis_prob: unified.crisis_probability,
+            mental_state: unified.mental_state,
+            severity: unified.severity_rating,
+            tags: unified.tags,
+            text_emotion: textNorm,
+            face_emotion: faceNorm,
+            final_avatar_emotion: textNorm,
+            is_stress: isStressEmotion(unified.emotion) || isStressEmotion(unified.mental_state),
+        });
+
+        return unified;
+    };
+
+    const updateStreamingText = (text: string, streamId: number) => {
+        if (streamId !== activeStreamRef.current) return;
+        const idx = avatarMsgIndexRef.current;
+        if (idx < 0) return;
+        setMessages(prev => {
+            if (idx >= prev.length || prev[idx].role !== 'avatar') return prev;
+            const updated = [...prev];
+            updated[idx] = { ...updated[idx], text };
+            return updated;
+        });
+    };
+
+    const finalizeAvatarMessage = (
+        data: Record<string, any>,
+        replyText: string,
+        streamId: number,
+    ) => {
+        if (streamId !== activeStreamRef.current) return;
+        const unified = applySideEffects(data);
+        const idx = avatarMsgIndexRef.current;
+
+        setMessages(prev => {
+            if (idx >= 0 && idx < prev.length && prev[idx].role === 'avatar') {
+                const updated = [...prev];
+                updated[idx] = { ...updated[idx], text: replyText, analysis: unified };
+                return updated;
+            }
+            const updated = [...prev];
+            for (let i = updated.length - 1; i >= 0; i--) {
+                if (updated[i].role === 'avatar') {
+                    updated[i] = { ...updated[i], text: replyText, analysis: unified };
+                    return updated;
+                }
+            }
+            updated.push({ role: 'avatar', text: replyText, analysis: unified });
+            return updated;
+        });
+
+        avatarMsgIndexRef.current = -1;
+    };
+
     const handleSubmit = async () => {
         if (!content.trim() || isAnalyzing) return;
         const userText = content.trim();
         setContent('');
         setError(null);
         setIsAnalyzing(true);
-        setMessages(prev => [...prev, { role: 'user', text: userText }]);
+        const streamId = ++activeStreamRef.current;
+        stopSpeech();
+        resetSpeakDedup();
+        streamBuffer.reset();
+        avatarMsgIndexRef.current = -1;
+
+        setMessages(prev => {
+            avatarMsgIndexRef.current = prev.length + 1;
+            return [
+                ...prev,
+                { role: 'user', text: userText },
+                { role: 'avatar', text: '' },
+            ];
+        });
+
+        let gotFirstChunk = false;
+        const pipelineTimer = createPipelineTimer();
+
+        const inferred = trackingEnabled && faceTracking.faceDetected
+            ? inferFaceEmotionFromSignals(faceTracking)
+            : { emotion: 'neutral', confidence: 0 };
+        const sendFace = inferred.confidence > 0 ? inferred.emotion : undefined;
 
         try {
-            // ── Call unified AI endpoint ──────────────────────────────────
-            const analysisRes = await ai.analyze(userText, conversationHistory);
-            const data = analysisRes.data;
-
-            // -- Try unified model output first (v2), fall back to legacy (v1)
-            let unified: UnifiedAnalysis;
-            if (data.unified) {
-                // V2: new unified model
-                unified = {
-                    ...data.unified,
-                    processing_time_ms: data.processing_time_ms || 0,
-                    model_version: data.model_version || '2.0.0',
-                };
-            } else {
-                // V1 backward-compat: build unified from old fields
-                unified = {
-                    mental_state: data.mental_health?.mental_state || 'Stable',
-                    raw_label: (data.mental_health?.mental_state || 'normal').toLowerCase(),
-                    emotion: data.emotion?.emotion || 'neutral',
-                    crisis_risk: data.crisis?.risk_level || 'LOW',
-                    crisis_probability: data.crisis?.crisis_probability || 0,
-                    requires_immediate_action: data.crisis?.requires_immediate_action || false,
-                    severity_rating: Math.round((data.crisis?.crisis_probability || 0) * 10),
-                    tags: [],
-                    confidence: data.emotion?.confidence || 0,
-                    all_scores: data.emotion?.all_emotions || {},
-                    semantic_summary: '',
-                    triggered_by: 'legacy',
-                    processing_time_ms: data.processing_time_ms || 0,
-                    model_version: data.model_version || '1.0',
-                };
-            }
-
-            setCurrentEmotion(unified.emotion);
-            setCurrentRisk(unified.crisis_risk);
-            setCurrentSeverity(unified.severity_rating);
-
-            if (unified.crisis_risk === 'HIGH' || unified.crisis_risk === 'CRISIS') {
-                setShowCrisis(true);
-            }
-
-            // Notify parent for analytics panel
-            onNewEntry?.({
-                emotion: unified.emotion,
-                confidence: unified.confidence,
-                crisis_prob: unified.crisis_probability,
-                mental_state: unified.mental_state,
-                severity: unified.severity_rating,
-                tags: unified.tags,
-            });
-
-            // ── Avatar response ───────────────────────────────────────────
-            const avatarRes = await avatar.respond({
-                journal_text: userText,
-                emotion: unified.emotion,
-                confidence: unified.confidence,
-                risk_level: unified.crisis_risk,
-                crisis_probability: unified.crisis_probability,
-                mental_state: unified.mental_state,
-                severity_rating: unified.severity_rating,
-                tags: unified.tags,
-                semantic_summary: unified.semantic_summary,
-                // Clean history for API compatibility (ensure role names match and content is extracted)
-                conversation_history: conversationHistory.map(h => ({
-                    role: h.role === 'avatar' ? 'assistant' : h.role,
-                    content: h.text || h.content || ''
-                })),
-            });
-
-            const avatarText = avatarRes.data.text;
-
-            setMessages(prev => [...prev, { role: 'avatar', text: avatarText, analysis: unified }]);
-            setConversationHistory(prev => [
-                ...prev,
-                { role: 'user', content: userText, analysis: unified },
-                { role: 'assistant', content: avatarText },
-            ]);
-
+            await chat.sendMessageStream(
+                {
+                    session_id: sessionId || undefined,
+                    message: userText,
+                    face_emotion: sendFace,
+                    face_confidence: inferred.confidence,
+                },
+                {
+                    onMeta: (data) => {
+                        if (streamId !== activeStreamRef.current) return;
+                        pipelineTimer.mark('meta');
+                        if (data.session_id) {
+                            localStorage.setItem('session_id', data.session_id as string);
+                            setSessionId(data.session_id as string);
+                        }
+                    },
+                    onChunk: (chunk) => {
+                        if (streamId !== activeStreamRef.current) return;
+                        if (!gotFirstChunk) {
+                            gotFirstChunk = true;
+                            pipelineTimer.mark('firstChunk');
+                            setIsAnalyzing(false);
+                        }
+                        streamBuffer.appendChunk(chunk, (text) => updateStreamingText(text, streamId));
+                    },
+                    onDone: (data) => {
+                        if (streamId !== activeStreamRef.current) return;
+                        pipelineTimer.mark('done');
+                        const replyText = (data.reply || data.text || '') as string;
+                        streamBuffer.setFinal(replyText);
+                        streamBuffer.flushNow((text) => updateStreamingText(text, streamId));
+                        finalizeAvatarMessage(data, replyText, streamId);
+                        pipelineTimer.mark('avatarUpdate');
+                        const serverTiming = data.pipeline_timing as Record<string, number> | undefined;
+                        pipelineTimer.logBreakdown(serverTiming);
+                        if (ttsEnabled && replyText.trim()) {
+                            requestAnimationFrame(() => {
+                                requestAnimationFrame(() => {
+                                    if (streamId === activeStreamRef.current) {
+                                        pipelineTimer.mark('ttsStart');
+                                        speakText(replyText, {
+                                            onAudioStart: () => pipelineTimer.mark('audioPlayback'),
+                                            onComplete: () => {
+                                                pipelineTimer.logBreakdown(serverTiming);
+                                            },
+                                        });
+                                    }
+                                });
+                            });
+                        }
+                    },
+                },
+            );
         } catch (err: any) {
             console.error('Analysis error:', err);
-            const detail = err?.response?.data?.detail;
+            const detail = err?.message;
             let errMsg = 'Connection error — is the AI service running?';
-
-            if (typeof detail === 'string') {
-                errMsg = detail;
-            } else if (Array.isArray(detail)) {
-                // Handle Pydantic validation errors (list of objects)
-                errMsg = detail.map((d: any) => d.msg || JSON.stringify(d)).join(', ');
-            } else if (detail && typeof detail === 'object') {
-                errMsg = detail.message || JSON.stringify(detail);
-            } else {
-                errMsg = err?.message || errMsg;
-            }
+            if (typeof detail === 'string' && detail.length < 200) errMsg = detail;
 
             setError(errMsg);
-            setMessages(prev => [...prev, {
-                role: 'avatar',
-                text: "Your words matter to me. I'm having a brief connection issue — please try again in a moment. 💙",
-            }]);
+            setMessages(prev => {
+                const idx = avatarMsgIndexRef.current;
+                const fallback = "Your words matter to me. I'm having a brief connection issue — please try again in a moment. 💙";
+                if (idx >= 0 && idx < prev.length && prev[idx].role === 'avatar') {
+                    const updated = [...prev];
+                    updated[idx] = { role: 'avatar', text: fallback };
+                    return updated;
+                }
+                const withoutEmpty = prev.filter((m, i) => !(i === prev.length - 1 && m.role === 'avatar' && !m.text));
+                return [...withoutEmpty, { role: 'avatar', text: fallback }];
+            });
+            avatarMsgIndexRef.current = -1;
         } finally {
             setIsAnalyzing(false);
         }
     };
 
     const riskStyle = RISK_COLORS[currentRisk] || RISK_COLORS.LOW;
-    const emotionEmoji = EMOTION_EMOJI[currentEmotion] || '😐';
+    const emotionEmoji = EMOTION_EMOJI[textEmotion] || EMOTION_EMOJI[finalAvatarEmotion] || '😐';
 
     return (
         <div className="flex flex-col h-full gap-3 overflow-hidden" style={{ maxHeight: '100%' }}>
+            {/* Webcam: visible in dev overlay, hidden in production */}
+            {process.env.NODE_ENV !== 'development' && trackingEnabled && (
+                <video ref={videoRef} className="hidden" muted playsInline autoPlay />
+            )}
+            <FaceTrackingDebugOverlay
+                active={trackingEnabled}
+                videoRef={videoRef}
+                landmarksRef={landmarksRef}
+                tracking={faceTracking}
+                textEmotion={textEmotion}
+                faceEmotion={faceEmotion}
+                faceConfidence={faceConfidence}
+            />
+
             {/* Avatar + Status bar */}
             <div className="flex-shrink-0 flex items-center gap-3 p-3 bg-slate-800/50 rounded-2xl border border-slate-700/50">
-                <Avatar emotion={currentEmotion} isThinking={isAnalyzing} />
+                <Avatar
+                    emotion={finalAvatarEmotion}
+                    isThinking={isAnalyzing}
+                    mouthOpen={mouthOpen}
+                    isSpeaking={isSpeaking}
+                    faceTracking={trackingEnabled ? faceTracking : null}
+                />
                 <div className="flex-1 min-w-0">
                     <h2 className="text-base font-bold text-white">SereneMind</h2>
-                    <p className="text-xs text-slate-400">Unified AI · Full Semantic Analysis</p>
+                    <p className="text-xs text-slate-400">Avatar · TTS · Memory-aware</p>
                     {messages.length > 0 && (
                         <div className="flex items-center gap-2 mt-1.5 flex-wrap">
                             <span className="flex items-center gap-1 text-[10px] px-2 py-0.5 bg-indigo-500/10 border border-indigo-500/20 rounded-full text-indigo-300">
                                 <Brain className="w-2.5 h-2.5" />
-                                {emotionEmoji} {currentEmotion}
+                                Text: {emotionEmoji} {normalizeAvatarEmotion(textEmotion)}
+                            </span>
+                            {trackingEnabled && initialized && faceTracking.faceDetected && (
+                                <span className="flex items-center gap-1 text-[10px] px-2 py-0.5 bg-purple-500/10 border border-purple-500/20 rounded-full text-purple-300">
+                                    <Camera className="w-2.5 h-2.5" />
+                                    Face: {faceEmotion || '—'} ({(faceConfidence * 100).toFixed(0)}%)
+                                </span>
+                            )}
+                            {trackingEnabled && initialized && !faceTracking.faceDetected && (
+                                <span className="flex items-center gap-1 text-[10px] px-2 py-0.5 bg-slate-700/50 border border-slate-600/40 rounded-full text-slate-400">
+                                    <Camera className="w-2.5 h-2.5" />
+                                    No face
+                                </span>
+                            )}
+                            {faceTrackingError && (
+                                <span className="flex items-center gap-1 text-[10px] px-2 py-0.5 bg-amber-500/10 border border-amber-500/20 rounded-full text-amber-300" title={faceTrackingError}>
+                                    <Camera className="w-2.5 h-2.5" />
+                                    Camera off
+                                </span>
+                            )}
+                            <span className="flex items-center gap-1 text-[10px] px-2 py-0.5 bg-emerald-500/10 border border-emerald-500/20 rounded-full text-emerald-300">
+                                Avatar: {normalizeAvatarEmotion(finalAvatarEmotion)}
                             </span>
                             <span className={`flex items-center gap-1 text-[10px] px-2 py-0.5 border rounded-full ${riskStyle}`}>
                                 <Zap className="w-2.5 h-2.5" />
@@ -417,12 +633,30 @@ export default function JournalArea({
                         </div>
                     )}
                 </div>
-                {isAnalyzing && (
-                    <div className="flex items-center gap-1.5 text-indigo-300 text-xs flex-shrink-0">
-                        <Activity className="w-3.5 h-3.5 animate-pulse" />
-                        <span>Analysing...</span>
-                    </div>
-                )}
+                <div className="flex items-center gap-2 flex-shrink-0">
+                    <button
+                        type="button"
+                        onClick={() => setTtsEnabled(v => !v)}
+                        className={`p-1.5 rounded-lg border text-xs ${ttsEnabled ? 'border-emerald-500/30 text-emerald-300' : 'border-slate-600 text-slate-500'}`}
+                        title="Toggle voice"
+                    >
+                        <Volume2 className="w-3.5 h-3.5" />
+                    </button>
+                    <button
+                        type="button"
+                        onClick={() => setTrackingEnabled(v => !v)}
+                        className={`p-1.5 rounded-lg border text-xs ${trackingEnabled ? 'border-purple-500/30 text-purple-300' : 'border-slate-600 text-slate-500'}`}
+                        title="Toggle face tracking (MediaPipe)"
+                    >
+                        <Camera className="w-3.5 h-3.5" />
+                    </button>
+                    {isAnalyzing && (
+                        <div className="flex items-center gap-1.5 text-indigo-300 text-xs">
+                            <Activity className="w-3.5 h-3.5 animate-pulse" />
+                            <span>Analysing...</span>
+                        </div>
+                    )}
+                </div>
             </div>
 
             {/* Messages Area */}
@@ -439,7 +673,7 @@ export default function JournalArea({
                         <span className="text-5xl mb-3">💙</span>
                         <h3 className="text-lg font-semibold text-slate-200 mb-1">This is your safe space</h3>
                         <p className="text-slate-400 text-xs leading-relaxed max-w-xs">
-                            Share how you're feeling. Our unified AI model will perform full semantic analysis — emotion, mental state, severity rating, crisis risk, and contextual tags — all in real-time.
+                            Share how you're feeling or just say hello. SereneMind remembers your conversation and supports you naturally.
                         </p>
                     </motion.div>
                 )}
@@ -463,7 +697,15 @@ export default function JournalArea({
                                         ? 'bg-indigo-600 text-white rounded-br-sm'
                                         : 'bg-slate-800/80 border border-slate-700 text-slate-200 rounded-bl-sm'
                                         }`}>
-                                        {msg.text}
+                                        {msg.role === 'avatar' && !msg.text && isAnalyzing ? (
+                                            <span className="flex items-center gap-1.5">
+                                                {[0, 150, 300].map(delay => (
+                                                    <span key={delay} className="w-2 h-2 bg-indigo-400 rounded-full animate-bounce" style={{ animationDelay: `${delay}ms` }} />
+                                                ))}
+                                            </span>
+                                        ) : (
+                                            msg.text
+                                        )}
                                     </div>
                                     {/* Unified Model Analysis Dropdown — avatar messages only */}
                                     {msg.role === 'avatar' && msg.analysis && (
@@ -475,19 +717,6 @@ export default function JournalArea({
                     ))}
                 </AnimatePresence>
 
-                {/* Typing indicator */}
-                {isAnalyzing && (
-                    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="flex justify-start">
-                        <div className="w-7 h-7 rounded-full bg-gradient-to-br from-indigo-500 to-purple-600 flex-shrink-0 flex items-center justify-center mr-2 mt-1">
-                            <Heart className="w-3.5 h-3.5 text-white" />
-                        </div>
-                        <div className="bg-slate-800/80 border border-slate-700 px-4 py-3 rounded-2xl rounded-bl-sm flex items-center gap-1.5">
-                            {[0, 150, 300].map(delay => (
-                                <span key={delay} className="w-2 h-2 bg-indigo-400 rounded-full animate-bounce" style={{ animationDelay: `${delay}ms` }} />
-                            ))}
-                        </div>
-                    </motion.div>
-                )}
                 <div ref={messagesEndRef} />
             </div>
 

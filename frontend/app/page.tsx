@@ -1,29 +1,48 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { motion } from "framer-motion";
+import { auth } from "@/lib/api";
+
+const DEMO_EMAIL = "demo@example.com";
+const DEMO_PASSWORD = "demo12345";
 
 export default function Home() {
     const router = useRouter();
+    const [authError, setAuthError] = useState<string | null>(null);
+    const [isLoading, setIsLoading] = useState(false);
 
     useEffect(() => {
-        // Check auth, redirect to dashboard or login
         const token = localStorage.getItem("token");
         if (token) {
-            // In a real app we'd verify the token validity here
             router.push("/dashboard");
-        } else {
-            // For prototype, we can also redirect to dashboard using a demo login if we want, 
-            // but let's stick to a landing page that offers "Login" or "Get Started".
         }
     }, [router]);
 
-    const handleDemoLogin = () => {
-        // Quick demo access
-        localStorage.setItem("token", "demo-token");
-        localStorage.setItem("user", JSON.stringify({ id: "demo-user", name: "Guest" }));
-        router.push("/dashboard");
+    const handleDemoLogin = async () => {
+        setAuthError(null);
+        setIsLoading(true);
+        try {
+            let res;
+            try {
+                res = await auth.login({ email: DEMO_EMAIL, password: DEMO_PASSWORD });
+            } catch {
+                res = await auth.register({
+                    name: "Guest",
+                    email: DEMO_EMAIL,
+                    password: DEMO_PASSWORD,
+                });
+            }
+            const { token, user } = res.data;
+            localStorage.setItem("token", token);
+            localStorage.setItem("user", JSON.stringify(user));
+            router.push("/dashboard");
+        } catch {
+            setAuthError("Sign-in failed. Please try again.");
+        } finally {
+            setIsLoading(false);
+        }
     };
 
     return (
@@ -58,10 +77,16 @@ export default function Home() {
                 >
                     <button
                         onClick={handleDemoLogin}
-                        className="px-8 py-4 bg-indigo-600 hover:bg-indigo-700 text-white rounded-full font-semibold text-lg transition-all shadow-lg hover:shadow-indigo-500/30"
+                        disabled={isLoading}
+                        className="px-8 py-4 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-60 disabled:cursor-not-allowed text-white rounded-full font-semibold text-lg transition-all shadow-lg hover:shadow-indigo-500/30"
                     >
-                        Enter Serenity
+                        {isLoading ? "Signing in..." : "Enter Serenity"}
                     </button>
+                    {authError && (
+                        <p className="mt-4 text-sm text-red-400" role="alert">
+                            {authError}
+                        </p>
+                    )}
                     <button className="px-8 py-4 bg-transparent border border-gray-600 hover:border-gray-400 text-gray-300 rounded-full font-semibold text-lg transition-all">
                         Learn More
                     </button>

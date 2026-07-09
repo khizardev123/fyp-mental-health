@@ -1,0 +1,6 @@
+@echo off
+echo Starting AI Service on port 8000...
+cd /d "e:\UMT\FYP\Ultimate final version for FYP-1\khizer fyp\khizer fyp\serenemind\services\ai-service"
+"e:\UMT\FYP\Ultimate final version for FYP-1\khizer fyp\khizer fyp\serenemind\ml\venv_windows\Scripts\python.exe" -m pip install -q -r requirements.txt
+echo Dependencies installed. Starting server...
+"e:\UMT\FYP\Ultimate final version for FYP-1\khizer fyp\khizer fyp\serenemind\ml\venv_windows\Scripts\uvicorn.exe" main:app --host 0.0.0.0 --port 8000 --reload

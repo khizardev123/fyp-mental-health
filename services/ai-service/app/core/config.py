@@ -11,7 +11,10 @@ class Settings(BaseSettings):
     ML_MODELS_DIR: str = os.path.join(BASE_DIR, "ml", "models")
     
     # Unified model (preferred) — single model for all 9 classes
-    UNIFIED_MODEL_PATH: str = os.path.join(ML_MODELS_DIR, "unified_mental_health.joblib")
+    UNIFIED_MODEL_PATH: str = os.getenv(
+        "UNIFIED_MODEL_PATH",
+        os.path.join(ML_MODELS_DIR, "unified_mental_health.joblib"),
+    )
     USE_UNIFIED_MODEL: bool = True
 
     # Legacy 3-model paths (fallback if unified model not found)
