@@ -1,4 +1,3 @@
-from collections import Counter
 from typing import Any
 
 from sqlalchemy.orm import Session
@@ -29,11 +28,25 @@ def get_or_create_user(db: Session, user_id: str | None, name: str | None = None
 
 
 def get_or_create_session(db: Session, user: User, session_id: str | None) -> ChatSession:
+    """Reuse an open session, or create a new one.
+
+    Ended sessions are never reopened — a new Session row is created so
+    emotional summaries stay scoped to logical session boundaries (Phase F-4).
+    """
     if session_id:
         session = db.get(ChatSession, session_id)
-        if session and session.user_id == user.id:
+        if session and session.user_id == user.id and session.ended_at is None:
             return session
 
+    session = ChatSession(user_id=user.id)
+    db.add(session)
+    db.commit()
+    db.refresh(session)
+    return session
+
+
+def create_session(db: Session, user: User) -> ChatSession:
+    """Explicitly start a new logical session (does not clear prior sessions)."""
     session = ChatSession(user_id=user.id)
     db.add(session)
     db.commit()
@@ -156,6 +169,8 @@ def save_message(
 
 
 def rolling_avatar_emotion(db: Session, session_id: str, window: int | None = None) -> str:
+    from collections import Counter
+
     window = window or settings.AVATAR_EMOTION_WINDOW
     recent_user = (
         db.query(Message)

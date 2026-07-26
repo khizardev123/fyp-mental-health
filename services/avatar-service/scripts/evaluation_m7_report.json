@@ -1,0 +1,68 @@
+{
+  "conversations": 73,
+  "turns": 145,
+  "regressions": {
+    "WEAK:cliche_in_system_prompt": 139,
+    "GAP:no_cross_session_progress_link": 1
+  },
+  "regression_total": 0,
+  "gaps": {
+    "GAP:no_cross_session_progress_link": 1
+  },
+  "weaknesses": {
+    "WEAK:cliche_in_system_prompt": 139
+  },
+  "strengths": {
+    "personality:concise_guidance": 139,
+    "memory:recall_intent": 10,
+    "memory:recall_neutral_emotion": 10,
+    "emotion:recovery_handled": 3,
+    "emotion:joy_preserved": 3,
+    "safety:crisis_escalated": 3,
+    "safety:helpline_present": 3,
+    "emotion:stress_detected": 2,
+    "emotion:followup_inherited": 2,
+    "emotion:topic_shift": 1,
+    "safety:hopeless_high": 1
+  },
+  "by_category": {
+    "academic_stress": {
+      "WEAK:cliche_in_system_prompt": 22
+    },
+    "relationships": {
+      "WEAK:cliche_in_system_prompt": 13
+    },
+    "burnout": {
+      "WEAK:cliche_in_system_prompt": 10
+    },
+    "grief": {
+      "WEAK:cliche_in_system_prompt": 10
+    },
+    "recovery": {
+      "WEAK:cliche_in_system_prompt": 14
+    },
+    "hobbies": {
+      "WEAK:cliche_in_system_prompt": 10
+    },
+    "long_term_goals": {
+      "WEAK:cliche_in_system_prompt": 8,
+      "GAP:no_cross_session_progress_link": 1
+    },
+    "topic_shifts": {
+      "WEAK:cliche_in_system_prompt": 10
+    },
+    "memory_recall": {
+      "WEAK:cliche_in_system_prompt": 13
+    },
+    "positive_progress": {
+      "WEAK:cliche_in_system_prompt": 11
+    },
+    "crisis": {
+      "WEAK:cliche_in_system_prompt": 6
+    },
+    "casual": {
+      "WEAK:cliche_in_system_prompt": 12
+    }
+  },
+  "convo_sample_failures": []
+}

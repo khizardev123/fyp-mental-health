@@ -56,7 +56,8 @@ def test_memory_prompt_includes_memories() -> None:
     )
     content = msgs[-1]["content"]
     assert "failed an exam" in content
-    assert "Memories:" in content
+    assert "Verified memories" in content
+    assert "About the user" not in content
 
 
 if __name__ == "__main__":

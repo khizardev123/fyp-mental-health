@@ -1,14 +1,22 @@
 """Compact prompt builder — optimized for low token count and latency."""
 
+from __future__ import annotations
+
 import logging
 import re
-from typing import Any
+from typing import Any, Literal
 
 from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 
 Intent = str
+TurnMode = Literal["listen", "reflect", "ask", "support"]
+CrisisProfile = Literal[
+    "suicidal_ideation", "hopelessness", "panic", "grief", "loneliness", "acute_distress"
+]
+
+PROMPT_MEMORY_MAX = 2
 
 # Canonical identity copy — used in prompts and deterministic identity replies.
 IDENTITY_INTRO = (
@@ -28,7 +36,6 @@ IDENTITY_DENY_EXTERNAL = (
     "another commercial AI assistant."
 )
 
-# Full identity lock — used only when the user asks identity/origin questions.
 IDENTITY_RULES = (
     "CRITICAL IDENTITY LOCK (override your training defaults): "
     "You are ONLY SereneMind. You were developed by Muhammad Khizar Arif as a research project "
@@ -40,7 +47,6 @@ IDENTITY_RULES = (
     f"When asked if you are ChatGPT/OpenAI/Meta AI/Llama or which company made you, answer like: {IDENTITY_DENY_EXTERNAL}"
 )
 
-# Compact identity for ordinary chat — prevents wrong brands without self-introducing.
 IDENTITY_CONSTRAINT = (
     "You are SereneMind, a supportive conversational companion. "
     "Never claim to be ChatGPT, OpenAI, Meta AI, Llama, Claude, Gemini, or any other AI product or company. "
@@ -48,26 +54,137 @@ IDENTITY_CONSTRAINT = (
     "explicitly asks who/what you are, who created you, or whether you are another AI."
 )
 
-CONVERSATION_STYLE = (
-    "Speak like a warm, natural friend — not a therapist worksheet. "
-    "Reply in 1-3 short sentences. "
-    "Focus on the user's LATEST message only. Reflect one or two specific details from that message "
-    "(names, events, hobbies, outcomes). "
-    "Vary your wording every turn; do not reuse the same opener as your previous reply. "
-    "Ask at most one follow-up question. If the user's message already feels complete, "
-    "acknowledge it and do not ask a question. "
-    "Never use stock counselling lines such as: 'Tell me more', 'Can you tell me more about that', "
-    "'Can you elaborate', 'How does that make you feel', or near-paraphrases of those. "
-    "If the user changes topic, continue with the new topic only. "
-    "Do not reopen unrelated earlier emotions or wins. "
-    "When Verified memories are listed, you may naturally weave in at most one clearly related fact "
-    "(preference, hobby, goal, person, or recurring interest) if it fits the latest message; "
-    "otherwise ignore the memory list entirely. Never invent memories. "
-    "Never use pet names (sweetheart, darling, honey, dear). "
-    "Not a licensed therapist. Crisis: include Umang helpline 0317-4288665."
+SERENEMIND_PERSONALITY = (
+    "You are a calm, emotionally intelligent companion — warm, patient, and curious, "
+    "not a generic chatbot or clinical counselor. "
+    "Sound like a thoughtful friend who listens carefully. "
+    "Default flow: observe something specific they said → reflect it briefly → "
+    "optional single question only when it opens space (never stack questions). "
+    "Use 2-4 short sentences in plain spoken language. "
+    "Vary wording every turn; do not repeat your last opener or closing. "
+    "Curiosity before advice — do not lecture, diagnose, or list steps unless they ask. "
+    "When goals, studies, relationships, or hobbies come up, connect naturally to their words. "
+    "If they change topic, follow the new topic only. "
+    "Never use pet names. You are not a licensed therapist. "
+    "Do not use stock phrases such as: \"I'm here for you\", \"It's okay to feel this way\", "
+    "\"Your feelings are valid\", \"Thank you for sharing\", \"That must be hard\", "
+    "\"It's understandable\", \"Tell me more\", \"Can you elaborate\", "
+    "\"How does that make you feel\", or near-paraphrases. "
+    "If crisis signals appear, stay calm and include Umang Mental Health Helpline 0317-4288665 (24/7)."
 )
 
-# Identity Q&A — locked in prompt architecture so base-model defaults cannot override.
+# Backward-compatible alias
+CONVERSATION_STYLE = SERENEMIND_PERSONALITY
+
+BASE_SYSTEM = f"{IDENTITY_CONSTRAINT} {SERENEMIND_PERSONALITY}"
+
+MEMORY_SYSTEM_ADDON = (
+    " Verified memories may appear below. Use ONLY those facts — never invent names, events, or history. "
+    "Weave at most one memory detail naturally when it clearly fits their latest message. "
+    "Prefer journey phrasing (\"Last time you mentioned the FYP — how's it going?\") "
+    "over listing facts. If nothing fits, ignore all memories."
+)
+
+_GREETING_OVERLAY = (
+    "The user sent a greeting. Reply in 1-2 warm, casual sentences. "
+    "Do not reference past conversations unless they mention them now."
+)
+
+_SMALL_TALK_OVERLAY = (
+    "Casual conversation — match their energy in 1-3 sentences. "
+    "Respond to the specific thing they raised."
+)
+
+_EMOTIONAL_OVERLAY = (
+    "The user is sharing something emotional. Reflect a concrete detail before any question. "
+    "Match their intensity — no cheerleading or forced positivity. "
+    "Joy or achievement → celebrate the specific win. "
+    "Grief or loss → soft and unhurried. "
+    "Stress or anxiety → name the pressure, explore what feels heaviest if one question fits. "
+    "Use tone guidance below for intensity only — never repeat clinical labels to the user."
+)
+
+_FACTUAL_OVERLAY = (
+    "Answer directly in 2-3 sentences. Weave one memory detail only if it clearly helps."
+)
+
+_MEMORY_RECALL_OVERLAY = (
+    "The user asks what you remember. Answer in warm conversational prose (2-4 sentences) — "
+    "as if recalling a friend, not a profile or database. "
+    "Use at most two memory details from the list. Never invent. Do not use category headers."
+)
+
+CRISIS_SYSTEM_BASE = (
+    f"{IDENTITY_CONSTRAINT} "
+    "The user is in significant distress. Stay calm, grounded, and human — not clinical. "
+    "In 3-5 short sentences, naturally include ALL of the following: "
+    "(1) reflect something specific they said in plain words; "
+    "(2) thank them briefly for trusting you with something this heavy; "
+    "(3) exactly ONE gentle safety question suited to their words; "
+    "(4) encourage someone they trust now, and emergency services if immediate danger; "
+    "(5) offer to stay here with them in this chat; "
+    "(6) Umang Mental Health Helpline 0317-4288665 (24/7). "
+    "Do not use therapy clichés, numbered steps, or clinical labels. "
+    "Do not ask more than one question. No casual banter or self-introduction."
+)
+
+CRISIS_SITUATION_GUIDANCE: dict[CrisisProfile, str] = {
+    "suicidal_ideation": (
+        "Situation: suicidal thoughts or self-harm. Calm and direct. "
+        "Safety question example: \"Are you safe right now, or do you feel you might hurt yourself?\""
+    ),
+    "hopelessness": (
+        "Situation: hopelessness or giving up. Quiet steadiness — do not argue them into hope. "
+        "Safety question example: \"Right now, do you feel mostly exhausted, or like you might act on these thoughts?\""
+    ),
+    "panic": (
+        "Situation: panic or acute anxiety (racing heart, can't breathe). "
+        "Validate the physical fear — short sentences. "
+        "Safety question example: \"Are you somewhere you can sit down safely for a minute?\""
+    ),
+    "grief": (
+        "Situation: grief or bereavement. Honor the loss — no silver linings. "
+        "Safety question example: \"Is it the missing them that's hardest tonight, or feeling alone with it?\""
+    ),
+    "loneliness": (
+        "Situation: loneliness or feeling unseen. Warm presence — do not say \"just reach out.\" "
+        "Safety question example: \"Is there one person who might answer if you reached out tonight?\""
+    ),
+    "acute_distress": (
+        "Situation: acute distress. Reflect their exact words. "
+        "One safety question about whether they feel safe or might hurt themselves."
+    ),
+}
+
+TURN_MODE_GUIDANCE: dict[TurnMode, str] = {
+    "listen": (
+        "Turn mode: listen — short acknowledgment only; no question this turn."
+    ),
+    "reflect": (
+        "Turn mode: reflect — mirror a specific detail they shared; no question unless essential."
+    ),
+    "ask": (
+        "Turn mode: ask — one thoughtful question tied to their words; nothing generic."
+    ),
+    "support": (
+        "Turn mode: support — encourage or celebrate a concrete detail; at most one gentle question."
+    ),
+}
+
+SYSTEM_PROMPTS = {
+    "default": BASE_SYSTEM,
+    "greeting": f"{BASE_SYSTEM} {_GREETING_OVERLAY}",
+    "small_talk": f"{BASE_SYSTEM} {_SMALL_TALK_OVERLAY}",
+    "factual": f"{BASE_SYSTEM} {_FACTUAL_OVERLAY}",
+    "memory_recall": f"{BASE_SYSTEM} {_MEMORY_RECALL_OVERLAY}",
+    "emotional_share": f"{BASE_SYSTEM} {_EMOTIONAL_OVERLAY}",
+    "crisis": CRISIS_SYSTEM_BASE,
+}
+
+FRESH_INTENTS = frozenset({"greeting", "small_talk"})
+MAX_HISTORY_TURN_CHARS = 220
+MAX_MEMORY_SNIPPET_CHARS = 160
+
 _IDENTITY_WHO_RE = re.compile(
     r"\b(who are you|what are you|tell me about yourself|what can you do)\b",
     re.IGNORECASE,
@@ -89,6 +206,32 @@ _IDENTITY_EXTERNAL_RE = re.compile(
     re.IGNORECASE,
 )
 
+_SELF_HARM_RE = re.compile(
+    r"\b(suicid|kill myself|end my life|want to die|hurt myself|self[- ]?harm|cut myself)\b",
+    re.I,
+)
+_PANIC_RE = re.compile(
+    r"\b(panic attack|panicking|can't breathe|cannot breathe|heart racing|heart is racing)\b",
+    re.I,
+)
+_GRIEF_RE = re.compile(
+    r"\b(grief|grieving|mourning|passed away|funeral|died|death of|lost my)\b",
+    re.I,
+)
+_LONELY_RE = re.compile(
+    r"\b(lonely|loneliness|nobody cares|no one cares|isolated|isolation|feel alone)\b",
+    re.I,
+)
+_HOPELESS_RE = re.compile(
+    r"\b(hopeless|give up|can't do this|cannot do this|can't go on|nothing matters)\b",
+    re.I,
+)
+
+_POSITIVE_EMOTIONS = frozenset({
+    "joy", "happy", "happiness", "excited", "excitement", "pride", "proud",
+    "relief", "grateful", "gratitude", "content", "hopeful",
+})
+
 
 def resolve_identity_reply(message: str) -> str | None:
     """Return canonical SereneMind identity text for identity / origin questions."""
@@ -104,7 +247,11 @@ def resolve_identity_reply(message: str) -> str | None:
             )
         return IDENTITY_CREATOR
 
-    if re.search(r"\b(are you|is this)\s+(chatgpt|openai|meta(\s*ai)?|llama|claude|gemini|bard)\b", text, re.IGNORECASE):
+    if re.search(
+        r"\b(are you|is this)\s+(chatgpt|openai|meta(\s*ai)?|llama|claude|gemini|bard)\b",
+        text,
+        re.IGNORECASE,
+    ):
         return IDENTITY_DENY_EXTERNAL
 
     if _IDENTITY_WHO_RE.search(text):
@@ -121,95 +268,90 @@ def resolve_identity_reply(message: str) -> str | None:
     return None
 
 
-BASE_SYSTEM = f"{IDENTITY_CONSTRAINT} {CONVERSATION_STYLE}"
+def infer_crisis_profile(message: str, analysis: dict[str, Any]) -> CrisisProfile:
+    """Read-only crisis wording profile for prompt generation — does not change detection."""
+    text = (message or "").lower()
+    tags = " ".join(analysis.get("tags") or []).lower()
+    mental = (analysis.get("mental_state") or "").lower()
 
-MEMORY_SYSTEM_ADDON = (
-    " Verified memories may appear below. Use them only as optional context. "
-    "Mention a remembered fact only when it clearly relates to the user's latest message "
-    "(same topic: sport, hobby, cooking, exams, person, goal, preference, etc.). "
-    "When relevant, weave one specific detail naturally into the reply — for example, "
-    "if they watch cricket and a favourite player is listed, name that player; "
-    "if they cook and cooking is listed, connect to that interest; "
-    "if they feel stressed and exams/goals are listed, gently check whether that is related. "
-    "If nothing in the list meaningfully fits the latest message, ignore all memories and reply normally. "
-    "Do not force memories into unrelated chat. "
-    "Do not repeat the same remembered fact if you already mentioned it in a recent assistant turn. "
-    "Use at most one memory detail per reply. Never invent names, hobbies, teams, or past events."
-)
+    if _SELF_HARM_RE.search(text):
+        return "suicidal_ideation"
+    if _PANIC_RE.search(text) or mental == "acute anxiety" or "panic" in tags:
+        return "panic"
+    if _GRIEF_RE.search(text) or "loss" in tags or analysis.get("raw_label") == "grief":
+        return "grief"
+    if _LONELY_RE.search(text) or "loneliness" in tags:
+        return "loneliness"
+    if _HOPELESS_RE.search(text) or analysis.get("crisis_risk") == "HIGH":
+        return "hopelessness"
+    return "acute_distress"
 
-MEMORY_RECALL_SYSTEM = (
-    f"{IDENTITY_CONSTRAINT} "
-    "The user is asking what you remember about them. "
-    "Answer using ONLY the verified memories listed below. "
-    "Include their name, hobbies, sports, favourite team/player, and any emotional context if present. "
-    "Summarize naturally in 2-4 short sentences. Never fabricate details. "
-    "If a category is missing from the list, do not guess. Do not ask a counselling follow-up."
-)
 
-GREETING_SYSTEM = (
-    f"{IDENTITY_CONSTRAINT} "
-    "The user sent a greeting. Reply warmly in 1-2 short sentences. "
-    "Sound casual and human — a simple hello, not a therapy intake. "
-    "Do NOT say 'I'm SereneMind' or describe your purpose. "
-    "Do NOT reference past conversations or memories unless the user mentions them now. "
-    "A light open invitation is fine; avoid stock counselling questions."
-)
+def build_crisis_system_prompt(message: str, analysis: dict[str, Any]) -> str:
+    profile = infer_crisis_profile(message, analysis)
+    guidance = CRISIS_SITUATION_GUIDANCE.get(profile, CRISIS_SITUATION_GUIDANCE["acute_distress"])
+    return f"{CRISIS_SYSTEM_BASE} {guidance}"
 
-SMALL_TALK_SYSTEM = (
-    f"{IDENTITY_CONSTRAINT} "
-    "This is casual conversation. Keep it light, natural, and brief (1-3 short sentences). "
-    "Match the user's energy. Chat about the topic they raised. "
-    "Do NOT introduce yourself or mention your developer. "
-    "Do NOT reference past conversations unless the user mentions them now. "
-    "At most one light question — or none if a simple reply is enough."
-)
 
-EMOTIONAL_SHARE_SYSTEM = (
-    f"{BASE_SYSTEM} "
-    "Respond to the feeling in the latest message — do not mix in unrelated earlier topics. "
-    "If a Verified memory clearly relates to this feeling or topic (e.g. exams when stressed, "
-    "a hobby when they mention that activity), you may gently connect to that one fact; "
-    "otherwise stay only with what they just said. "
-    "Use Current analysis (emotion, mental_state, tags) to choose tone: "
-    "joy / excitement / achievement / pride / success → celebrate the specific win warmly; "
-    "share the moment; do not dig for hidden problems or ask how it 'makes them feel'. "
-    "hobbies / interests / fun plans → be curious and engaged; use a related remembered preference if listed. "
-    "sadness / loneliness → validate gently and specifically; quiet presence over probing; "
-    "do not pivot to past achievements to 'cheer them up' unless they mention those. "
-    "stress / anxiety / overwhelm → acknowledge the pressure; if a related goal/exam memory is listed, "
-    "you may gently ask whether today's stress connects to that. "
-    "grief / loss → be soft and respectful; do not rush them. "
-    "anger / frustration → acknowledge the frustration without lecturing. "
-    "Match intensity — do not oversell positivity or cheerlead. "
-    "Reflect a concrete detail from their latest words before any question. "
-    "Prefer a reflective statement with no question when their share already feels complete. "
-    "Use Current analysis only for tone; do not repeat clinical labels like 'low mood', "
-    "'hopelessness', or severity scores back to the user — speak in plain, human language."
-)
+def build_crisis_context_note(message: str, analysis: dict[str, Any]) -> str:
+    profile = infer_crisis_profile(message, analysis)
+    snippet = _truncate(message, 120)
+    return (
+        "[Crisis context — internal; do not repeat these labels to the user]\n"
+        f"Profile: {profile.replace('_', ' ')}. They said: \"{snippet}\". "
+        "Respond to their latest words first."
+    )
 
-CRISIS_SYSTEM = (
-    f"{IDENTITY_CONSTRAINT} "
-    "Crisis mode: stay calm, grounded, and brief. "
-    "Acknowledge they are in serious distress without interrogating. "
-    "Include Umang Mental Health Helpline 0317-4288665 (24/7). "
-    "Encourage reaching out to someone they trust. "
-    "Do not use casual banter, celebration, or identity self-intro. "
-    "Do not ask multiple questions."
-)
 
-SYSTEM_PROMPTS = {
-    "default": BASE_SYSTEM,
-    "greeting": GREETING_SYSTEM,
-    "small_talk": SMALL_TALK_SYSTEM,
-    "factual": BASE_SYSTEM + " Answer directly and briefly. Prefer a clear answer over a follow-up question.",
-    "memory_recall": MEMORY_RECALL_SYSTEM,
-    "emotional_share": EMOTIONAL_SHARE_SYSTEM,
-    "crisis": CRISIS_SYSTEM,
-}
+def _assistant_asked_last(history: list[dict[str, str]]) -> bool:
+    for turn in reversed(history):
+        if turn.get("role") == "assistant":
+            return "?" in (turn.get("content") or "")
+    return False
 
-FRESH_INTENTS = frozenset({"greeting", "small_talk"})
-MAX_HISTORY_TURN_CHARS = 220
-MAX_MEMORY_SNIPPET_CHARS = 160
+
+def infer_turn_mode(
+    *,
+    intent: Intent,
+    analysis: dict[str, Any],
+    history: list[dict[str, str]],
+    message: str,
+) -> TurnMode:
+    """Lightweight turn guidance from history — no persistence."""
+    if intent == "crisis":
+        return "support"
+    if intent in FRESH_INTENTS:
+        return "listen"
+
+    emotion = str(analysis.get("emotion") or "").lower()
+    tags = [t.lower() for t in (analysis.get("tags") or [])]
+    words = len((message or "").split())
+    asked_last = _assistant_asked_last(history)
+
+    if emotion in _POSITIVE_EMOTIONS or any(t in tags for t in ("joy", "achievement", "pride")):
+        return "support"
+
+    if asked_last:
+        return "listen" if words <= 10 else "reflect"
+
+    if intent == "memory_recall":
+        return "reflect"
+
+    if analysis.get("raw_label") == "grief" or "loss" in tags:
+        return "reflect"
+
+    if words <= 6:
+        return "listen"
+
+    if intent == "emotional_share" and words >= 10 and not asked_last:
+        return "ask"
+
+    return "reflect"
+
+
+def build_turn_guidance_note(mode: TurnMode) -> str:
+    line = TURN_MODE_GUIDANCE.get(mode, TURN_MODE_GUIDANCE["reflect"])
+    return f"[Conversation guidance — internal; do not mention to the user]\n{line}"
 
 
 def _truncate(text: str | None, limit: int) -> str:
@@ -219,70 +361,89 @@ def _truncate(text: str | None, limit: int) -> str:
     return text if len(text) <= limit else text[: limit - 3] + "..."
 
 
-def _format_memories_compact(memories: list[dict[str, Any]]) -> str:
-    if not memories:
-        return ""
-    parts = []
-    seen: set[str] = set()
-    for mem in memories[: settings.RAG_TOP_K]:
-        text = (mem.get("text") or mem.get("metadata", {}).get("text", "")).strip()
-        score = mem.get("score")
+def _memory_text(mem: dict[str, Any]) -> str:
+    return (mem.get("text") or mem.get("metadata", {}).get("text", "") or "").strip()
+
+
+def _significant_tokens(text: str) -> set[str]:
+    stop = frozenset({"i", "a", "the", "my", "is", "am", "and", "to", "it", "that", "you", "me"})
+    return {w for w in re.findall(r"[a-z']+", text.lower()) if len(w) > 2 and w not in stop}
+
+
+def _memories_surfaced_in_history(
+    memories: list[dict[str, Any]],
+    history: list[dict[str, str]],
+) -> set[str]:
+    """Keys of memory snippets already echoed in recent assistant turns."""
+    surfaced: set[str] = set()
+    assistant_text = " ".join(
+        (t.get("content") or "").lower()
+        for t in history
+        if t.get("role") == "assistant"
+    )
+    if not assistant_text:
+        return surfaced
+    assistant_tokens = _significant_tokens(assistant_text)
+    for mem in memories:
+        text = _memory_text(mem).lower()
         if not text:
             continue
-        dedupe_key = text.lower()[:80]
-        if dedupe_key in seen:
+        key = text[:80]
+        mem_tokens = _significant_tokens(text)
+        if len(mem_tokens) < 2:
             continue
-        seen.add(dedupe_key)
-        snippet = _truncate(text, MAX_MEMORY_SNIPPET_CHARS)
-        if score is not None:
-            parts.append(f"[{score:.2f}] {snippet}")
-        else:
-            parts.append(snippet)
-    return " | ".join(parts)
+        overlap = mem_tokens & assistant_tokens
+        if len(overlap) >= min(3, len(mem_tokens)):
+            surfaced.add(key)
+    return surfaced
 
 
-def _memory_type(mem: dict[str, Any]) -> str:
-    return (
-        mem.get("memory_type")
-        or (mem.get("metadata") or {}).get("memory_type")
-        or "emotional"
-    )
-
-
-def _format_memories_by_category(memories: list[dict[str, Any]]) -> str:
+def _format_memories_conversational(
+    memories: list[dict[str, Any]],
+    history: list[dict[str, str]] | None = None,
+    *,
+    max_items: int = PROMPT_MEMORY_MAX,
+) -> str:
+    """At most N memory snippets as plain lines — no category dumps."""
     if not memories:
         return ""
 
-    factual: list[str] = []
-    preference: list[str] = []
-    emotional: list[str] = []
+    history = history or []
+    surfaced = _memories_surfaced_in_history(memories, history)
+    lines: list[str] = []
     seen: set[str] = set()
 
-    for mem in memories[: settings.RAG_TOP_K]:
-        text = (mem.get("text") or mem.get("metadata", {}).get("text", "")).strip()
+    for mem in memories:
+        text = _memory_text(mem)
         if not text:
             continue
         key = text.lower()[:80]
-        if key in seen:
+        if key in seen or key in surfaced:
             continue
         seen.add(key)
-        snippet = _truncate(text, MAX_MEMORY_SNIPPET_CHARS)
-        mt = _memory_type(mem)
-        if mt == "factual":
-            factual.append(snippet)
-        elif mt == "preference":
-            preference.append(snippet)
-        else:
-            emotional.append(snippet)
+        lines.append(f"- {_truncate(text, MAX_MEMORY_SNIPPET_CHARS)}")
+        if len(lines) >= max_items:
+            break
 
-    lines: list[str] = []
-    if factual:
-        lines.append(f"About the user: {'; '.join(factual)}")
-    if preference:
-        lines.append(f"Preferences: {'; '.join(preference)}")
-    if emotional:
-        lines.append(f"Emotional context: {'; '.join(emotional)}")
     return "\n".join(lines)
+
+
+def _format_memories_by_category(memories: list[dict[str, Any]]) -> str:
+    """Legacy wrapper — delegates to conversational formatter."""
+    return _format_memories_conversational(memories)
+
+
+def _format_memories_compact(memories: list[dict[str, Any]]) -> str:
+    return _format_memories_conversational(memories)
+
+
+def _tone_guidance_note(analysis: dict[str, Any]) -> str:
+    tags = ", ".join(analysis.get("tags") or []) or "none"
+    return (
+        "Tone guidance (internal — do not repeat labels to the user): "
+        f"intensity={analysis.get('severity_rating', 0)}/10, "
+        f"emotion={analysis.get('emotion', 'neutral')}, tags={tags}"
+    )
 
 
 def build_prompt_messages(
@@ -295,12 +456,12 @@ def build_prompt_messages(
     session_summary: str | None = None,
     relevant_memories: list[dict[str, Any]] | None = None,
     fusion_note: str | None = None,
+    emotion_trajectory_note: str | None = None,
 ) -> list[dict[str, str]]:
     """Build messages without duplicating history in the context block."""
     memories = relevant_memories or []
-    mem_text = _format_memories_by_category(memories) or _format_memories_compact(memories)
+    mem_text = _format_memories_conversational(memories, history)
 
-    # Identity questions: lock the reply in the prompt so base-model defaults cannot override.
     identity_reply = resolve_identity_reply(current_message)
     if identity_reply:
         locked_system = (
@@ -321,11 +482,14 @@ def build_prompt_messages(
             },
         ]
 
-    system_content = SYSTEM_PROMPTS.get(intent, SYSTEM_PROMPTS["default"])
+    if intent == "crisis":
+        system_content = build_crisis_system_prompt(current_message, analysis)
+    else:
+        system_content = SYSTEM_PROMPTS.get(intent, SYSTEM_PROMPTS["default"])
+
     if mem_text and intent not in FRESH_INTENTS:
         system_content += MEMORY_SYSTEM_ADDON
 
-    # Greetings: no history, memories, or summaries — fresh natural reply
     if intent in FRESH_INTENTS:
         return [
             {"role": "system", "content": system_content},
@@ -341,27 +505,43 @@ def build_prompt_messages(
         })
 
     context_parts: list[str] = []
+
     if mem_text:
-        context_parts.append(
-            "Verified memories (optional — use only if clearly relevant to the latest user message; "
-            "at most one detail; never invent):\n"
-            f"{mem_text}"
-        )
+        if intent == "memory_recall":
+            context_parts.append(
+                "Verified memories (use ONLY these; conversational prose; never invent):\n"
+                f"{mem_text}"
+            )
+        else:
+            context_parts.append(
+                "Verified memories (optional — at most one detail if clearly relevant; never invent):\n"
+                f"{mem_text}"
+            )
+
     if user_summary:
         context_parts.append(f"Background: {_truncate(user_summary, settings.PROMPT_MAX_SUMMARY_CHARS // 2)}")
     if session_summary:
         context_parts.append(f"Session: {_truncate(session_summary, settings.PROMPT_MAX_SUMMARY_CHARS // 2)}")
     if fusion_note:
         context_parts.append(fusion_note)
-    if intent in ("emotional_share", "crisis", "memory_recall") or mem_text:
-        context_parts.append(
-            f"Current analysis: emotion={analysis.get('emotion', 'neutral')}, "
-            f"mental_state={analysis.get('mental_state', 'normal')}, "
-            f"severity={analysis.get('severity_rating', 0)}, "
-            f"assessment={_truncate(analysis.get('semantic_summary', ''), 180)}, "
-            f"tags={', '.join(analysis.get('tags') or [])}, "
-            f"crisis={analysis.get('crisis_risk', 'LOW')}"
+    if emotion_trajectory_note and intent not in FRESH_INTENTS and intent != "memory_recall":
+        context_parts.append(emotion_trajectory_note)
+
+    if intent == "crisis":
+        context_parts.append(build_crisis_context_note(current_message, analysis))
+    elif intent not in ("memory_recall",) and (
+        intent == "emotional_share" or mem_text or emotion_trajectory_note
+    ):
+        context_parts.append(_tone_guidance_note(analysis))
+
+    if intent not in ("crisis", "memory_recall"):
+        turn_mode = infer_turn_mode(
+            intent=intent,
+            analysis=analysis,
+            history=history,
+            message=current_message,
         )
+        context_parts.append(build_turn_guidance_note(turn_mode))
 
     user_content = current_message
     if context_parts:
@@ -369,54 +549,76 @@ def build_prompt_messages(
 
     messages.append({"role": "user", "content": user_content})
 
-    prompt_chars = sum(len(m["content"]) for m in messages)
     logger.info(
-        "[Prompt] intent=%s | memories=%d | fusion=%s | chars=%d",
+        "[Prompt] intent=%s | memories=%d | chars=%d",
         intent,
         len(memories),
-        bool(fusion_note),
-        prompt_chars,
+        sum(len(m["content"]) for m in messages),
     )
 
     return messages
 
 
 GREETING_REPLIES = [
-    "Hey — good to see you. How's your day going?",
-    "Hi there. I'm glad you stopped by.",
-    "Hello. Hope you're doing alright today.",
-    "Hey. What's been keeping you busy?",
+    "Hey — good to see you. What's been on your mind lately?",
+    "Hi there. How's your day treating you so far?",
+    "Hello. Anything you'd like to talk through today?",
+    "Hey. What's been taking up most of your energy this week?",
 ]
 
 SMALL_TALK_REPLIES = [
-    "Got it — I'm with you.",
-    "Nice. I'm listening whenever you want to keep going.",
-    "Sounds good. What else is on your mind?",
-    "Alright. I'm here.",
+    "Ha — I hear you. What happened next?",
+    "Nice. What's the best part of that for you?",
+    "Got it. Is that something you've been looking forward to?",
+    "Fair enough. What's drawing you to that?",
 ]
 
 POSITIVE_REPLIES = [
-    "That's wonderful — you should feel proud of that.",
-    "Love that for you. Sounds like a real win.",
-    "That's exciting. Glad things lined up for you.",
+    "That's a real win — what made it feel good for you?",
+    "You sound proud of that. How did it all come together?",
+    "That's exciting. What are you most looking forward to from here?",
 ]
 
 EMOTIONAL_REPLIES = [
-    "That sounds heavy. I'm here with you.",
-    "I hear you — that would weigh on anyone.",
-    "Thanks for sharing that. You don't have to carry it alone here.",
-    "That makes sense. It's okay to feel this way.",
+    "That sounds like a lot to carry. What's weighing on you most right now?",
+    "I can hear how heavy that feels. Is it the situation itself, or everything around it?",
+    "That would drain anyone. What part of this feels hardest today?",
+    "Sounds like you've been holding a lot. Do you want to unpack it, or just sit with it for a moment?",
 ]
 
-CRISIS_REPLIES = [
-    "Please call Umang Mental Health Helpline at 0317-4288665 (24/7). You don't have to handle this alone.",
-    "Reach out to someone you trust, or call Umang at 0317-4288665 — available around the clock.",
-]
-
-_POSITIVE_EMOTIONS = frozenset({
-    "joy", "happy", "happiness", "excited", "excitement", "pride", "proud",
-    "relief", "grateful", "gratitude", "content", "hopeful",
-})
+CRISIS_FALLBACK: dict[CrisisProfile, str] = {
+    "suicidal_ideation": (
+        "That sounds unbearably heavy. Thank you for saying it here — that takes trust. "
+        "Are you safe right now, or do you feel you might hurt yourself? "
+        "Please call Umang Mental Health Helpline at 0317-4288665 (24/7), reach someone you trust, "
+        "or emergency services if you're in immediate danger. I'm here with you."
+    ),
+    "hopelessness": (
+        "When everything feels hopeless, it can be exhausting just to get through the day. "
+        "Thank you for telling me. Do you feel mostly worn down, or like you might act on these thoughts? "
+        "Umang at 0317-4288665 (24/7) or someone you trust can sit with you — I'll stay here too."
+    ),
+    "panic": (
+        "That racing heart and tight breath can feel terrifying. Thank you for reaching out in the middle of it. "
+        "Are you somewhere you can sit down safely for a minute? "
+        "Umang is 0317-4288665 (24/7) if you want a voice now — I'm not going anywhere."
+    ),
+    "grief": (
+        "Grief can leave everything feeling hollow. Thank you for trusting me with something this tender. "
+        "Is it the missing them that's hardest right now, or feeling alone with it? "
+        "Umang at 0317-4288665 (24/7) or someone who knew them can be with you — I'm here too."
+    ),
+    "loneliness": (
+        "Feeling unseen when you're hurting is its own kind of pain. Thank you for saying that here. "
+        "Is there one person who might answer if you reached out tonight? "
+        "Umang is 0317-4288665 (24/7) — and I'm still here in this chat with you."
+    ),
+    "acute_distress": (
+        "I hear how much you're carrying right now. Thank you for telling me. "
+        "Are you safe where you are, or do you feel you might hurt yourself? "
+        "Please call Umang at 0317-4288665 (24/7) or someone you trust. I'm here with you."
+    ),
+}
 
 
 def fallback_reply(intent: Intent, analysis: dict[str, Any], message: str | None = None) -> str:
@@ -431,7 +633,8 @@ def fallback_reply(intent: Intent, analysis: dict[str, Any], message: str | None
     if intent == "small_talk":
         return random.choice(SMALL_TALK_REPLIES)
     if intent == "crisis":
-        return random.choice(CRISIS_REPLIES)
+        profile = infer_crisis_profile(message or "", analysis or {})
+        return CRISIS_FALLBACK.get(profile, CRISIS_FALLBACK["acute_distress"])
     if intent == "emotional_share":
         emotion = str((analysis or {}).get("emotion") or "").lower()
         tags = " ".join(analysis.get("tags") or []).lower() if analysis else ""

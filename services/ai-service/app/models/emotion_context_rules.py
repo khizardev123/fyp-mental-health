@@ -29,6 +29,12 @@ _CHRONIC_DEPRESSION_KW = (
     "hopeless", "empty inside", "no motivation", "can't get out of bed",
     "worthless", "suicidal", "want to die", "anhedonia", "never happy anymore",
 )
+_LONELY_KW = (
+    "lonely", "loneliness", "alone", "no friends", "isolated", "isolation",
+    "disconnected", "left out", "emptiness", "empty inside", "homesick",
+    "homesickness", "hopeless", "no hope", "burnout", "burned out", "burnt out",
+    "emotionally exhausted", "emotional exhaustion", "drained", "worn out",
+)
 
 
 def _has_any(text: str, keywords: tuple[str, ...]) -> bool:
@@ -99,6 +105,25 @@ def apply_emotion_context_rules(
             confidence = all_scores.get(top_label, confidence)
             severity_cap = min(severity_cap or 10, 6)
             meta["rules_applied"].append("stress≠depression")
+
+    # Loneliness / isolation / burnout — avoid Stable unless contradicted
+    if _has_any(text_lower, _LONELY_KW) and top_label in ("normal", "joy"):
+        all_scores = dict(all_scores)
+        if _has_any(text_lower, ("burnout", "burned out", "burnt out", "emotionally exhausted", "drained")):
+            top_label = "stress"
+            all_scores["stress"] = max(all_scores.get("stress", 0), 0.55)
+            meta["rules_applied"].append("burnout→stress")
+        elif _has_any(text_lower, ("hopeless", "empty inside", "emptiness", "no hope")):
+            top_label = "sadness"
+            all_scores["sadness"] = max(all_scores.get("sadness", 0), 0.5)
+            all_scores["depression"] = max(all_scores.get("depression", 0), 0.4)
+            meta["rules_applied"].append("hopeless→sadness")
+        else:
+            top_label = "sadness"
+            all_scores["sadness"] = max(all_scores.get("sadness", 0), 0.5)
+            meta["rules_applied"].append("loneliness→sadness")
+        confidence = max(all_scores.get(top_label, 0), confidence)
+        severity_cap = min(severity_cap or 10, 7)
 
     if severity_cap is not None:
         meta["severity_cap"] = severity_cap

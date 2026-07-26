@@ -10,13 +10,20 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from app.intent_gate import detect_intent
-from app.prompt_builder import build_prompt_messages
+from app.emotion_pipeline import finalize_emotion_analysis
+from app.prompt_builder import FRESH_INTENTS, build_prompt_messages
 from app.services.memory_retrieval import (
     classify_memory_type,
     is_memory_recall_query,
     retrieve_memories_for_prompt,
     session_user_memories,
 )
+
+
+def should_skip_memory(message: str) -> bool:
+    """Mirror chat_service skip_memory policy (Phase P0)."""
+    pre_intent = detect_intent(message)
+    return pre_intent in FRESH_INTENTS and not is_memory_recall_query(message)
 
 
 class _Msg:
@@ -77,6 +84,94 @@ def main() -> int:
     if check("Recall intent", detect_intent(recall_q) == "memory_recall"):
         passed += 1
 
+    personal_questions = [
+        ("What is my name?", "name recall"),
+        ("What sport do I enjoy?", "sport recall"),
+        ("What am I building?", "project recall"),
+        ("Who is my favourite batsman?", "player recall"),
+    ]
+    for q, label in personal_questions:
+        total += 1
+        if check(f"{label} detected", is_memory_recall_query(q)):
+            passed += 1
+        total += 1
+        if check(f"{label} intent", detect_intent(q) == "memory_recall"):
+            passed += 1
+
+    print("\n--- Phase P0: natural recall regression (session 2f3ec5b9 failures) ---")
+    p0_recall_questions = [
+        "Who is my favourite batsman?",
+        "Don't you remember the name of my favourite cricket batsman?",
+        "What sport do I enjoy?",
+        "What am I building?",
+        "What degree am I studying?",
+        "I love cricket, don't you remember?",
+    ]
+    for q in p0_recall_questions:
+        total += 1
+        if check(f"P0 recall detected: {q[:50]}", is_memory_recall_query(q)):
+            passed += 1
+        total += 1
+        if check(f"P0 intent memory_recall: {q[:50]}", detect_intent(q) == "memory_recall"):
+            passed += 1
+        total += 1
+        if check(f"P0 skip_memory=False: {q[:50]}", not should_skip_memory(q)):
+            passed += 1
+
+    total += 1
+    if check("P0 pure greeting still skips memory", should_skip_memory("Hi")):
+        passed += 1
+
+    print("\n--- Phase P0.5: recall emotion neutral + memory retrieval ---")
+    p05_recall = [
+        "What degree am I studying?",
+        "What do you remember about me?",
+        "What am I building?",
+    ]
+    stress_ctx = [
+        {
+            "emotion": "stress",
+            "mental_state": "Stress",
+            "confidence": 0.75,
+            "content": "I have three exams next week. I can't sleep.",
+        }
+    ]
+    calm_ml = {
+        "ml_raw_label": "normal",
+        "confidence": 0.48,
+        "all_scores": {"normal": 0.58, "stress": 0.12},
+        "crisis_probability": 0.02,
+    }
+    for q in p05_recall:
+        emo = finalize_emotion_analysis(q, dict(calm_ml), conversation_context=stress_ctx)
+        total += 1
+        if check(
+            f"P0.5 neutral emotion: {q[:40]}",
+            emo.get("emotion") == "neutral"
+            and emo.get("mental_state") == "Stable"
+            and not any("continuity_inherit" in x for x in emo.get("emotion_rules_applied", []))
+            and "academic pressure" not in emo.get("tags", []),
+            f"emotion={emo.get('emotion')} tags={emo.get('tags')}",
+        ):
+            passed += 1
+        total += 1
+        if check(f"P0.5 recall intent preserved: {q[:40]}", detect_intent(q) == "memory_recall"):
+            passed += 1
+        hits = retrieve_memories_for_prompt(
+            user_id="demo-user",
+            query=q,
+            session_id="sess-demo",
+            session_user_messages=messages,
+        )
+        hit_text = " ".join((m.get("text") or "").lower() for m in hits)
+        total += 1
+        if check(
+            f"P0.5 memories retrieved: {q[:40]}",
+            len(hits) >= 1 and ("khizar" in hit_text or "football" in hit_text or "messi" in hit_text),
+            f"count={len(hits)}",
+        ):
+            passed += 1
+
     session_mems = session_user_memories(messages)
     total += 1
     if check("Session stores all 5 turns", len(session_mems) == 5, str(len(session_mems))):
@@ -124,13 +219,13 @@ def main() -> int:
     )
     user_block = prompt[-1]["content"]
     total += 1
-    if check("Prompt has About the user section", "About the user" in user_block):
+    if check("Prompt uses conversational memory lines", user_block.strip().startswith("Verified memories") and "- " in user_block):
         passed += 1
     total += 1
-    if check("Prompt has Preferences section", "Preferences" in user_block):
+    if check("Prompt has no category dump", "About the user:" not in user_block and "Preferences:" not in user_block):
         passed += 1
     total += 1
-    if check("Prompt forbids invention", "do not invent" in user_block.lower()):
+    if check("Prompt forbids invention", "never invent" in user_block.lower() or "never invent" in msgs[0]["content"].lower()):
         passed += 1
 
     print(f"\nResult: {passed}/{total} checks passed")

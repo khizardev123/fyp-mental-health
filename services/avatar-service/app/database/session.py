@@ -1,6 +1,7 @@
 import os
 from sqlalchemy import create_engine, text
 from sqlalchemy.orm import sessionmaker, DeclarativeBase
+from sqlalchemy.pool import NullPool
 
 from app.core.config import settings
 
@@ -20,8 +21,16 @@ def _sqlite_url() -> str:
     return url
 
 
-connect_args = {"check_same_thread": False} if settings.DATABASE_URL.startswith("sqlite") else {}
-engine = create_engine(_sqlite_url(), connect_args=connect_args)
+# SQLite + default QueuePool exhausts under concurrent/long-lived SSE chat streams
+# (request-scoped sessions stay checked out until the stream finishes). NullPool
+# avoids "QueuePool limit ... connection timed out" (sqlalchemy.exc.TimeoutError).
+_is_sqlite = settings.DATABASE_URL.startswith("sqlite")
+connect_args = {"check_same_thread": False} if _is_sqlite else {}
+engine = create_engine(
+    _sqlite_url(),
+    connect_args=connect_args,
+    poolclass=NullPool if _is_sqlite else None,
+)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 

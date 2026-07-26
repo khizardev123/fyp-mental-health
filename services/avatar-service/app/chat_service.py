@@ -19,7 +19,12 @@ from app.chat_repository import (
 )
 from app.core.config import settings
 from app.crisis_rules import apply_rule_based_crisis_override, check_rule_based_crisis
-from app.emotion_rules import apply_emotion_context_rules
+from app.emotion_rules import (
+    apply_emotion_context_rules,
+    build_conversation_emotion_context,
+    build_emotion_trajectory_prompt_note,
+    compute_session_emotion_state,
+)
 from app.database.models import User
 from app.intent_gate import detect_intent
 from app.pipeline_profiler import PipelineTiming, log_pipeline_timing
@@ -34,10 +39,15 @@ from app.services.summary_service import (
     get_user_summary_text,
     maybe_update_summaries,
 )
-from app.services.memory_retrieval import classify_memory_type, retrieve_memories_for_prompt
+from app.services.memory_retrieval import (
+    classify_memory_type,
+    is_memory_recall_query,
+    retrieve_memories_for_prompt,
+)
 from app.services.vector_memory import upsert_memory
 from app.services.emotion_fusion import (
     build_fusion_prompt_context,
+    build_session_emotion_fusion_note,
     fuse_emotions,
 )
 
@@ -94,7 +104,8 @@ async def _prepare_chat_context(
 
     t_intent_pre = time.perf_counter()
     pre_intent = detect_intent(message)
-    skip_memory = pre_intent in FRESH_INTENTS
+    # Explicit recall queries must always retrieve — never bypass RAG on FRESH intents.
+    skip_memory = pre_intent in FRESH_INTENTS and not is_memory_recall_query(message)
     timing.intent_detection_ms = (time.perf_counter() - t_intent_pre) * 1000
 
     user_summary = None if skip_memory else get_user_summary_text(db, user.id)
@@ -136,13 +147,26 @@ async def _prepare_chat_context(
 
     t_rules = time.perf_counter()
     analysis = build_analysis_payload(ml_raw)
-    analysis = apply_emotion_context_rules(message, analysis)
+    emotion_context = build_conversation_emotion_context(prior_messages)
+    session_state = compute_session_emotion_state(emotion_context)
+    analysis = apply_emotion_context_rules(
+        message,
+        analysis,
+        conversation_context=emotion_context,
+    )
     analysis = apply_rule_based_crisis_override(message, analysis)
 
+    session_fusion_ctx = {
+        "continuity_strength": session_state.continuity_strength,
+        "dominant_label": session_state.dominant_label,
+        "trend": session_state.trend,
+        "summary_line": session_state.summary_line,
+    }
     fusion = fuse_emotions(
         analysis.get("emotion", "neutral"),
         face_emotion,
         face_confidence,
+        session_state=session_fusion_ctx,
     )
     fusion_note = build_fusion_prompt_context(
         message=message,
@@ -151,6 +175,10 @@ async def _prepare_chat_context(
         face_confidence=face_confidence,
         fusion=fusion,
     )
+    session_fusion_note = build_session_emotion_fusion_note(session_fusion_ctx)
+    if session_fusion_note:
+        fusion_note = f"{session_fusion_note} {fusion_note}".strip() if fusion_note else session_fusion_note
+    emotion_trajectory_note = build_emotion_trajectory_prompt_note(session_state, analysis)
     analysis["text_emotion"] = fusion["text_emotion"]
     analysis["face_emotion"] = fusion.get("face_emotion")
     analysis["face_confidence"] = face_confidence
@@ -208,6 +236,7 @@ async def _prepare_chat_context(
         session_summary=session_summary,
         relevant_memories=relevant_memories,
         fusion_note=fusion_note,
+        emotion_trajectory_note=emotion_trajectory_note,
     )
     timing.prompt_construction_ms = (time.perf_counter() - t_prompt) * 1000
     timing.prep_total_ms = timing.since("prep")

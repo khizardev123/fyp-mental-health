@@ -38,7 +38,10 @@ class Session(Base):
     summary: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     user: Mapped["User"] = relationship(back_populates="sessions")
-    messages: Mapped[list["Message"]] = relationship(back_populates="session", order_by="Message.timestamp")
+    messages: Mapped[list["Message"]] = relationship(
+        back_populates="session",
+        order_by="Message.timestamp",
+    )
 
 
 class Message(Base):

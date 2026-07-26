@@ -50,7 +50,7 @@ def _embed_with_openai(text: str) -> list[float] | None:
         return None
 
 
-def _embed_with_pinecone(text: str) -> list[float] | None:
+def _embed_with_pinecone(text: str, *, input_type: str = "passage") -> list[float] | None:
     pc = get_pinecone_client()
     if pc is None:
         return None
@@ -58,7 +58,7 @@ def _embed_with_pinecone(text: str) -> list[float] | None:
         result = pc.inference.embed(
             model=settings.PINECONE_EMBED_MODEL,
             inputs=[text[:8000]],
-            parameters={"input_type": "passage", "truncate": "END"},
+            parameters={"input_type": input_type, "truncate": "END"},
         )
         vector = result.data[0].values
         logger.info(
@@ -73,19 +73,36 @@ def _embed_with_pinecone(text: str) -> list[float] | None:
 
 
 def embed_message(text: str) -> list[float] | None:
-    """Generate embedding via configured provider with automatic fallback."""
+    """Generate embedding for stored passages (upsert)."""
     provider = settings.EMBEDDING_PROVIDER.lower()
     vector = None
 
     if provider in ("auto", "openai"):
         vector = _embed_with_openai(text)
     if vector is None and provider in ("auto", "pinecone"):
-        vector = _embed_with_pinecone(text)
+        vector = _embed_with_pinecone(text, input_type="passage")
 
     if vector:
         logger.info("[RAG] Embedding created | dim=%d | chars=%d", len(vector), len(text))
     else:
         logger.warning("[RAG] embed_message failed — no provider available")
+    return vector
+
+
+def embed_query(text: str) -> list[float] | None:
+    """Generate embedding for search queries (E5 expects input_type=query)."""
+    provider = settings.EMBEDDING_PROVIDER.lower()
+    vector = None
+
+    if provider in ("auto", "openai"):
+        vector = _embed_with_openai(text)
+    if vector is None and provider in ("auto", "pinecone"):
+        vector = _embed_with_pinecone(text, input_type="query")
+
+    if vector:
+        logger.info("[RAG] Query embedding created | dim=%d | chars=%d", len(vector), len(text))
+    else:
+        logger.warning("[RAG] embed_query failed — no provider available")
     return vector
 
 
@@ -138,7 +155,7 @@ def search_relevant_memories(
         return []
 
     t_embed = time.perf_counter()
-    vector = embed_message(query)
+    vector = embed_query(query)
     if timings is not None:
         timings["pinecone_embed_ms"] = (time.perf_counter() - t_embed) * 1000
 
@@ -154,14 +171,9 @@ def search_relevant_memories(
     k = top_k or settings.RAG_TOP_K
     try:
         t_query = time.perf_counter()
+        # Long-term memory spans sessions — filter by authenticated user only (Phase F-8).
+        # Same-session context is supplied separately via session DB in memory_retrieval.
         pine_filter: dict[str, Any] = {"user_id": {"$eq": user_id}}
-        if session_id:
-            pine_filter = {
-                "$and": [
-                    {"user_id": {"$eq": user_id}},
-                    {"session_id": {"$eq": session_id}},
-                ]
-            }
         results = index.query(
             vector=vector,
             top_k=k,
@@ -169,14 +181,6 @@ def search_relevant_memories(
             filter=pine_filter,
         )
         matches = results.get("matches") or []
-        if session_id and not matches:
-            results = index.query(
-                vector=vector,
-                top_k=k,
-                include_metadata=True,
-                filter={"user_id": {"$eq": user_id}},
-            )
-            matches = results.get("matches") or []
         if timings is not None:
             timings["pinecone_query_ms"] = (time.perf_counter() - t_query) * 1000
 

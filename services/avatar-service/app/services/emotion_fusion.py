@@ -36,6 +36,8 @@ def fuse_emotions(
     text_emotion: str,
     face_emotion: str | None = None,
     face_confidence: float = 0.0,
+    *,
+    session_state: dict | None = None,
 ) -> dict:
     """
     Weighted fusion: text 80%, face 20%.
@@ -53,6 +55,12 @@ def fuse_emotions(
             "fusion_active": False,
             "fusion_weights": {"text": 1.0, "face": 0.0},
         }
+        if session_state and text_state == "neutral":
+            strength = float(session_state.get("continuity_strength") or 0.0)
+            dominant = session_state.get("dominant_label")
+            if strength >= 0.45 and dominant in ("stress", "anxiety", "sadness", "fear"):
+                result["final_avatar_emotion"] = normalize_emotion(dominant)
+                result["session_continuity_nudge"] = True
         return result
 
     # Score vector over avatar states
@@ -102,4 +110,21 @@ def build_fusion_prompt_context(
         f"Expression note: The user wrote {short_msg!r}, which reads as {text_norm}, "
         f"but their facial expression suggests {face_norm} (confidence {face_confidence:.0%}). "
         f"If appropriate, gently acknowledge that their expression may not fully match their words."
+    )
+
+
+def build_session_emotion_fusion_note(session_state: dict | None) -> str | None:
+    """Optional note when session trajectory suggests ongoing distress but current text is neutral."""
+    if not session_state:
+        return None
+    strength = float(session_state.get("continuity_strength") or 0.0)
+    if strength < 0.35:
+        return None
+    trajectory = session_state.get("summary_line") or ""
+    trend = session_state.get("trend") or "stable"
+    if not trajectory:
+        return None
+    return (
+        f"{trajectory} Session tone is {trend}. "
+        "If the latest message is brief or vague, acknowledge the ongoing thread before shifting topic."
     )

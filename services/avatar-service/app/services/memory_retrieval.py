@@ -30,6 +30,20 @@ RECALL_QUERY_PATTERNS = [
     r"what do you recall",
     r"summarize what you know",
     r"everything you know about me",
+    r"(don'?t you|do you) remember",
+    r"you forgot",
+    r"what('?s| is) my name",
+    r"what do you call me",
+    r"what sport do i (like|enjoy|play|love)",
+    r"what do i (like|love|enjoy)",
+    r"what am i (building|working on|making)",
+    r"what('?s| is) my (favourite|favorite)",
+    r"who is my (favourite|favorite)",
+    r"what('?s| is) my (degree|project|fyp|final year project)",
+    r"what degree am i (studying|doing|taking|pursuing)",
+    r"what (uni|university|college|major|course) am i",
+    r"what did i say my name",
+    r"do you know my name",
 ]
 
 FACTUAL_PATTERNS = [
@@ -42,6 +56,8 @@ FACTUAL_PATTERNS = [
     r"\bi live in\b",
     r"\bi work as\b",
     r"\bi study\b",
+    r"\bmy (degree|project|fyp|final year project) is\b",
+    r"\bworking on my (fyp|project|final year project)\b",
 ]
 
 PREFERENCE_PATTERNS = [
@@ -126,7 +142,12 @@ def _memory_key(mem: dict[str, Any]) -> str:
     return text[:100]
 
 
-def _rank_score(mem: dict[str, Any], newest_ts: float) -> float:
+def _rank_score(
+    mem: dict[str, Any],
+    newest_ts: float,
+    *,
+    current_session_id: str | None = None,
+) -> float:
     similarity = float(mem.get("score") or 0.5)
     ts = _parse_timestamp(mem.get("metadata") or {})
     if ts <= 0:
@@ -135,7 +156,12 @@ def _rank_score(mem: dict[str, Any], newest_ts: float) -> float:
         recency = ts / newest_ts
     else:
         recency = 0.5
-    return similarity * 0.62 + recency * 0.38
+    session_boost = 0.0
+    if current_session_id:
+        mem_session = (mem.get("metadata") or {}).get("session_id")
+        if mem_session == current_session_id:
+            session_boost = 0.04
+    return similarity * 0.62 + recency * 0.34 + session_boost
 
 
 def _message_to_memory(msg: Message, *, recency_index: int, total: int) -> dict[str, Any]:
@@ -262,7 +288,7 @@ def retrieve_memories_for_prompt(
             mem_type = classify_memory_type(mem.get("text", ""))
             meta["memory_type"] = mem_type
             mem["memory_type"] = mem_type
-        mem["rank_score"] = _rank_score(mem, newest_ts)
+        mem["rank_score"] = _rank_score(mem, newest_ts, current_session_id=session_id)
 
     merged.sort(key=lambda m: m.get("rank_score", 0), reverse=True)
 
